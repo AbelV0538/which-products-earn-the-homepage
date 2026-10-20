@@ -1,0 +1,279 @@
+{
+  "event_count": 4295584,
+  "user_count": 270154,
+  "day_count": 92,
+  "session_count": 360129,
+  "date_min": "2020-11-01",
+  "date_max": "2021-01-31",
+  "matches_pitch": {
+    "event_count": true,
+    "user_count": true,
+    "day_count": true
+  },
+  "events_by_device": {
+    "desktop": 2498330,
+    "mobile": 1704069,
+    "tablet": 93185
+  },
+  "events_by_name": {
+    "page_view": 1350428,
+    "user_engagement": 1058721,
+    "scroll": 493072,
+    "view_item": 386068,
+    "session_start": 354970,
+    "first_visit": 257462,
+    "view_promotion": 190104,
+    "add_to_cart": 58543,
+    "begin_checkout": 38757,
+    "select_item": 31007,
+    "view_search_results": 26172,
+    "add_shipping_info": 19722,
+    "add_payment_info": 13899,
+    "select_promotion": 9450,
+    "purchase": 5692,
+    "click": 1446,
+    "view_item_list": 71
+  },
+  "n_countries": 109,
+  "top_countries": [
+    {
+      "country": "United States",
+      "events": 1910483,
+      "users": 118493
+    },
+    {
+      "country": "India",
+      "events": 391859,
+      "users": 25367
+    },
+    {
+      "country": "Canada",
+      "events": 324261,
+      "users": 20268
+    },
+    {
+      "country": "United Kingdom",
+      "events": 133383,
+      "users": 8527
+    },
+    {
+      "country": "France",
+      "events": 82514,
+      "users": 5381
+    },
+    {
+      "country": "Spain",
+      "events": 81713,
+      "users": 5044
+    },
+    {
+      "country": "China",
+      "events": 76159,
+      "users": 4620
+    },
+    {
+      "country": "Taiwan",
+      "events": 72484,
+      "users": 4568
+    },
+    {
+      "country": "Germany",
+      "events": 71673,
+      "users": 4866
+    },
+    {
+      "country": "Italy",
+      "events": 61258,
+      "users": 3750
+    },
+    {
+      "country": "Singapore",
+      "events": 56869,
+      "users": 3597
+    },
+    {
+      "country": "Japan",
+      "events": 56676,
+      "users": 3547
+    },
+    {
+      "country": "South Korea",
+      "events": 51584,
+      "users": 3424
+    },
+    {
+      "country": "Netherlands",
+      "events": 50303,
+      "users": 3042
+    },
+    {
+      "country": "Turkey",
+      "events": 45168,
+      "users": 2733
+    }
+  ],
+  "tracking_gaps": {
+    "add_payment_info": {
+      "median_daily": 125.5,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "add_shipping_info": {
+      "median_daily": 188.0,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "add_to_cart": {
+      "median_daily": 503.0,
+      "gap_days": 20,
+      "gap_dates": [
+        "2020-11-01",
+        "2020-11-02",
+        "2020-11-03",
+        "2020-11-04",
+        "2020-11-05",
+        "2020-11-06",
+        "2020-11-07",
+        "2020-11-08",
+        "2020-11-09",
+        "2020-11-10",
+        "2020-11-11",
+        "2020-11-12",
+        "2020-11-13",
+        "2020-11-14",
+        "2020-11-15",
+        "2020-11-20",
+        "2020-11-21",
+        "2020-11-22",
+        "2020-11-23",
+        "2020-11-24"
+      ],
+      "first_reliable_date": "2020-11-25"
+    },
+    "begin_checkout": {
+      "median_daily": 351.0,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "click": {
+      "median_daily": 13.0,
+      "gap_days": 1,
+      "gap_dates": [
+        "2021-01-17"
+      ],
+      "first_reliable_date": "2021-01-18"
+    },
+    "first_visit": {
+      "median_daily": 2669.5,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "page_view": {
+      "median_daily": 14969.5,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "purchase": {
+      "median_daily": 53.5,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "scroll": {
+      "median_daily": 5119.0,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "select_item": {
+      "median_daily": 316.5,
+      "gap_days": 22,
+      "gap_dates": [
+        "2020-11-01",
+        "2020-11-02",
+        "2020-11-03",
+        "2020-11-04",
+        "2020-11-05",
+        "2020-11-06",
+        "2020-11-07",
+        "2020-11-08",
+        "2020-11-09",
+        "2020-11-10",
+        "2020-11-11",
+        "2020-11-12",
+        "2020-11-13",
+        "2020-11-14",
+        "2020-11-15",
+        "2020-11-16",
+        "2020-11-17",
+        "2020-11-18",
+        "2020-11-19",
+        "2020-11-20",
+        "2020-11-21",
+        "2020-11-22"
+      ],
+      "first_reliable_date": "2020-11-23"
+    },
+    "select_promotion": {
+      "median_daily": 98.5,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "session_start": {
+      "median_daily": 3794.0,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "user_engagement": {
+      "median_daily": 10912.5,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "view_item": {
+      "median_daily": 3998.0,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "view_item_list": {
+      "median_daily": 0.0,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "view_promotion": {
+      "median_daily": 2015.5,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    },
+    "view_search_results": {
+      "median_daily": 271.5,
+      "gap_days": 0,
+      "gap_dates": [],
+      "first_reliable_date": "2020-11-01"
+    }
+  },
+  "source_csv": "ga4_events_export.csv",
+  "files": {
+    "site_daily": {
+      "file": "site_daily.parquet",
+      "rows": 4143,
+      "sha256": "2eefd98a3be67046ff4e08b304e0daea2b90cd9bdd30c7b3ee41f391d76a394b"
+    },
+    "site_funnel": {
+      "file": "site_funnel.parquet",
+      "rows": 276,
+      "sha256": "960c7a38299b9a61a65865f83257039b8fad945468acd7629cc072942c7272c4"
+    }
+  },
+  "generated_at": "2026-10-20T07:08:56+00:00"
+}

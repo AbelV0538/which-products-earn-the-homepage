@@ -1,0 +1,1520 @@
+{
+  "generated_at": "2026-10-20T07:10:03+00:00",
+  "project": "visualanalyticsproj-fall2026",
+  "queries": {
+    "profile_items_per_event": 17,
+    "profile_item_fields": 8,
+    "profile_categories": 82,
+    "profile_keys": 1,
+    "profile_purchases": 1,
+    "profile_devices": 3,
+    "profile_view_item_composition": 1,
+    "profile_view_offsets": 1
+  },
+  "bytes_billed": {
+    "profile_items_per_event": 1048576000,
+    "profile_item_fields": 477102080,
+    "profile_categories": 352321536,
+    "profile_keys": 228589568,
+    "profile_purchases": 1056964608,
+    "profile_devices": 93323264,
+    "profile_view_item_composition": 1420820480,
+    "profile_view_offsets": 1109393408
+  },
+  "decisions": {
+    "product_key": "name_key",
+    "view_metric": "view_events",
+    "featured_signal": "views_share",
+    "stats": {
+      "purchase_id_coverage": 0.011372867587327376,
+      "purchase_name_coverage": 0.9317003061925889,
+      "row_share_multi_id_names": 0.9988714903846434,
+      "avg_items_per_view_item": 11.362210388794255
+    },
+    "notes": [
+      "R1: purchase rows matched to a viewed product by id 1.1%, by name 93.2%; names with several ids cover 99.9% of rows -> product_key = name_key.",
+      "R2: view_item events list ~11.4 different products (only 314 of 233,150 multi-item events repeat one product). Of 13,648 purchased products, 88% appeared in a view_item list earlier in the same session but only 29% of those at offset 0, so list position carries no 'main product' signal -> view_metric = view_events (a 'view' = the product appeared in a view_item event).",
+      "R4: 13% of view_promotion item rows carry a real item id -> featured_signal = views_share."
+    ]
+  },
+  "items_per_event": [
+    {
+      "event_name": "page_view",
+      "events": 1350428,
+      "events_with_items": 0,
+      "avg_items": 0.0,
+      "avg_items_nonempty": null,
+      "max_items": 0,
+      "p99_items": 0
+    },
+    {
+      "event_name": "user_engagement",
+      "events": 1058721,
+      "events_with_items": 0,
+      "avg_items": 0.0,
+      "avg_items_nonempty": null,
+      "max_items": 0,
+      "p99_items": 0
+    },
+    {
+      "event_name": "scroll",
+      "events": 493072,
+      "events_with_items": 0,
+      "avg_items": 0.0,
+      "avg_items_nonempty": null,
+      "max_items": 0,
+      "p99_items": 0
+    },
+    {
+      "event_name": "view_item",
+      "events": 386068,
+      "events_with_items": 241876,
+      "avg_items": 7.1185542443300145,
+      "avg_items_nonempty": 11.362210388794255,
+      "max_items": 12,
+      "p99_items": 12
+    },
+    {
+      "event_name": "session_start",
+      "events": 354970,
+      "events_with_items": 0,
+      "avg_items": 0.0,
+      "avg_items_nonempty": null,
+      "max_items": 0,
+      "p99_items": 0
+    },
+    {
+      "event_name": "first_visit",
+      "events": 257462,
+      "events_with_items": 0,
+      "avg_items": 0.0,
+      "avg_items_nonempty": null,
+      "max_items": 0,
+      "p99_items": 0
+    },
+    {
+      "event_name": "view_promotion",
+      "events": 190104,
+      "events_with_items": 134602,
+      "avg_items": 0.7080440180111938,
+      "avg_items_nonempty": 1.0,
+      "max_items": 1,
+      "p99_items": 1
+    },
+    {
+      "event_name": "add_to_cart",
+      "events": 58543,
+      "events_with_items": 58543,
+      "avg_items": 11.400611516321336,
+      "avg_items_nonempty": 11.400611516321336,
+      "max_items": 12,
+      "p99_items": 12
+    },
+    {
+      "event_name": "begin_checkout",
+      "events": 38757,
+      "events_with_items": 31991,
+      "avg_items": 2.01202363444023,
+      "avg_items_nonempty": 2.437560563908599,
+      "max_items": 31,
+      "p99_items": 11
+    },
+    {
+      "event_name": "select_item",
+      "events": 31007,
+      "events_with_items": 31006,
+      "avg_items": 10.622246589479802,
+      "avg_items_nonempty": 10.622589176288463,
+      "max_items": 12,
+      "p99_items": 12
+    },
+    {
+      "event_name": "view_search_results",
+      "events": 26172,
+      "events_with_items": 0,
+      "avg_items": 0.0,
+      "avg_items_nonempty": null,
+      "max_items": 0,
+      "p99_items": 0
+    },
+    {
+      "event_name": "add_shipping_info",
+      "events": 19722,
+      "events_with_items": 0,
+      "avg_items": 0.0,
+      "avg_items_nonempty": null,
+      "max_items": 0,
+      "p99_items": 0
+    },
+    {
+      "event_name": "add_payment_info",
+      "events": 13899,
+      "events_with_items": 0,
+      "avg_items": 0.0,
+      "avg_items_nonempty": null,
+      "max_items": 0,
+      "p99_items": 0
+    },
+    {
+      "event_name": "select_promotion",
+      "events": 9450,
+      "events_with_items": 8595,
+      "avg_items": 0.9095238095238096,
+      "avg_items_nonempty": 1.0,
+      "max_items": 1,
+      "p99_items": 1
+    },
+    {
+      "event_name": "purchase",
+      "events": 5692,
+      "events_with_items": 5690,
+      "avg_items": 2.811489810260013,
+      "avg_items_nonempty": 2.8124780316344458,
+      "max_items": 30,
+      "p99_items": 12
+    },
+    {
+      "event_name": "click",
+      "events": 1446,
+      "events_with_items": 0,
+      "avg_items": 0.0,
+      "avg_items_nonempty": null,
+      "max_items": 0,
+      "p99_items": 0
+    },
+    {
+      "event_name": "view_item_list",
+      "events": 71,
+      "events_with_items": 43,
+      "avg_items": 7.267605633802817,
+      "avg_items_nonempty": 12.0,
+      "max_items": 12,
+      "p99_items": 12
+    }
+  ],
+  "item_fields": [
+    {
+      "event_name": "view_item",
+      "item_rows": 2748246,
+      "bad_item_id": 9,
+      "bad_item_name": 9,
+      "bad_item_category": 8603,
+      "null_quantity": 2729121,
+      "null_price": 2748246,
+      "null_revenue": 2748246,
+      "zero_revenue": 0,
+      "distinct_ids": 426,
+      "distinct_names": 421,
+      "top_raw_ids": [
+        {
+          "value": "GGOEGXXX1344",
+          "count": 56466
+        },
+        {
+          "value": "GGOEGXXX1613",
+          "count": 52758
+        },
+        {
+          "value": "GGOEGXXX1109",
+          "count": 49795
+        },
+        {
+          "value": "GGOEGXXX1193",
+          "count": 43140
+        },
+        {
+          "value": "GGOEGXXX1181",
+          "count": 42142
+        },
+        {
+          "value": "GGOEAFKA087599",
+          "count": 38604
+        },
+        {
+          "value": "GGOEACBA104599",
+          "count": 37988
+        },
+        {
+          "value": "GGOEGXXX0905",
+          "count": 34866
+        }
+      ],
+      "top_raw_names": [
+        {
+          "value": "Google Navy Speckled Tee",
+          "count": 56466
+        },
+        {
+          "value": "Super G Unisex Joggers",
+          "count": 52758
+        },
+        {
+          "value": "Google Zip Hoodie F/C",
+          "count": 49795
+        },
+        {
+          "value": "Google Campus Bike Eco Tee Navy",
+          "count": 43140
+        },
+        {
+          "value": "Google Women's Striped L/S",
+          "count": 42142
+        },
+        {
+          "value": "Android Large Removable Sticker Sheet",
+          "count": 38604
+        },
+        {
+          "value": "Android SM S/F18 Sticker Sheet",
+          "count": 37988
+        },
+        {
+          "value": "Google Tee Yellow",
+          "count": 34873
+        }
+      ],
+      "top_raw_categories": [
+        {
+          "value": "Home/Apparel/Men's / Unisex/",
+          "count": 462115
+        },
+        {
+          "value": "Home/Sale/",
+          "count": 409702
+        },
+        {
+          "value": "Home/Apparel/",
+          "count": 169219
+        },
+        {
+          "value": "Lifestyle/Drinkware/",
+          "count": 153638
+        },
+        {
+          "value": "Home/Apparel/Women's/",
+          "count": 148675
+        },
+        {
+          "value": "Home/Apparel/Hats/",
+          "count": 126602
+        },
+        {
+          "value": "Lifestyle/Bags/",
+          "count": 118372
+        },
+        {
+          "value": "Home/New/",
+          "count": 110698
+        },
+        {
+          "value": "Home/Shop by Brand/Google/",
+          "count": 109901
+        },
+        {
+          "value": "Lifestyle/Small Goods/",
+          "count": 109830
+        }
+      ],
+      "top_promotion_names": [
+        {
+          "value": "(not set)",
+          "count": 2735363
+        },
+        {
+          "value": "Reach New Heights",
+          "count": 5749
+        },
+        {
+          "value": "Act Responsible",
+          "count": 2625
+        },
+        {
+          "value": "Complete Your Collection",
+          "count": 2124
+        },
+        {
+          "value": "Google Mural Collection",
+          "count": 1957
+        },
+        {
+          "value": "",
+          "count": 428
+        }
+      ],
+      "top_creative_slots": [
+        {
+          "value": "(not set)",
+          "count": 2748246
+        }
+      ],
+      "top_list_names": [
+        {
+          "value": "(not set)",
+          "count": 1388764
+        },
+        {
+          "value": "Not available in demo dataset",
+          "count": 1359482
+        }
+      ]
+    },
+    {
+      "event_name": "add_to_cart",
+      "item_rows": 667426,
+      "bad_item_id": 144,
+      "bad_item_name": 144,
+      "bad_item_category": 1969,
+      "null_quantity": 630166,
+      "null_price": 667426,
+      "null_revenue": 667426,
+      "zero_revenue": 0,
+      "distinct_ids": 805,
+      "distinct_names": 413,
+      "top_raw_ids": [
+        {
+          "value": "GGOEGXXX1344",
+          "count": 13455
+        },
+        {
+          "value": "GGOEGXXX1109",
+          "count": 12135
+        },
+        {
+          "value": "GGOEGXXX1181",
+          "count": 11646
+        },
+        {
+          "value": "GGOEGXXX1193",
+          "count": 11178
+        },
+        {
+          "value": "GGOEGXXX1613",
+          "count": 10809
+        },
+        {
+          "value": "GGOEAFKA087599",
+          "count": 10280
+        },
+        {
+          "value": "GGOEACBA104599",
+          "count": 10127
+        },
+        {
+          "value": "GGOEGXXX0913",
+          "count": 10031
+        }
+      ],
+      "top_raw_names": [
+        {
+          "value": "Google Navy Speckled Tee",
+          "count": 14094
+        },
+        {
+          "value": "Google Zip Hoodie F/C",
+          "count": 13011
+        },
+        {
+          "value": "Super G Unisex Joggers",
+          "count": 12015
+        },
+        {
+          "value": "Google Women's Striped L/S",
+          "count": 11847
+        },
+        {
+          "value": "Google Campus Bike Eco Tee Navy",
+          "count": 11631
+        },
+        {
+          "value": "Google Crewneck Sweatshirt Navy",
+          "count": 10631
+        },
+        {
+          "value": "Android Large Removable Sticker Sheet",
+          "count": 10395
+        },
+        {
+          "value": "Android SM S/F18 Sticker Sheet",
+          "count": 10347
+        }
+      ],
+      "top_raw_categories": [
+        {
+          "value": "Home/Apparel/Men's / Unisex/",
+          "count": 118125
+        },
+        {
+          "value": "Home/Sale/",
+          "count": 111599
+        },
+        {
+          "value": "Home/Apparel/Hats/",
+          "count": 45445
+        },
+        {
+          "value": "Lifestyle/Drinkware/",
+          "count": 37102
+        },
+        {
+          "value": "Home/Apparel/",
+          "count": 36695
+        },
+        {
+          "value": "Home/Apparel/Women's/",
+          "count": 36001
+        },
+        {
+          "value": "Home/Shop by Brand/Google/",
+          "count": 25669
+        },
+        {
+          "value": "Home/Campus Collection/",
+          "count": 25572
+        },
+        {
+          "value": "Lifestyle/Small Goods/",
+          "count": 22940
+        },
+        {
+          "value": "Home/New/",
+          "count": 21705
+        }
+      ],
+      "top_promotion_names": [
+        {
+          "value": "(not set)",
+          "count": 646185
+        },
+        {
+          "value": "Reach New Heights",
+          "count": 9299
+        },
+        {
+          "value": "Act Responsible",
+          "count": 4119
+        },
+        {
+          "value": "Complete Your Collection",
+          "count": 3649
+        },
+        {
+          "value": "Google Mural Collection",
+          "count": 3608
+        },
+        {
+          "value": "",
+          "count": 566
+        }
+      ],
+      "top_creative_slots": [
+        {
+          "value": "(not set)",
+          "count": 667426
+        }
+      ],
+      "top_list_names": [
+        {
+          "value": "(not set)",
+          "count": 464501
+        },
+        {
+          "value": "Not available in demo dataset",
+          "count": 202925
+        }
+      ]
+    },
+    {
+      "event_name": "select_item",
+      "item_rows": 329364,
+      "bad_item_id": 2720,
+      "bad_item_name": 2720,
+      "bad_item_category": 5171,
+      "null_quantity": 327047,
+      "null_price": 329364,
+      "null_revenue": 329364,
+      "zero_revenue": 0,
+      "distinct_ids": 640,
+      "distinct_names": 409,
+      "top_raw_ids": [
+        {
+          "value": "GGOEGXXX1109",
+          "count": 9115
+        },
+        {
+          "value": "GGOEGXXX1344",
+          "count": 8871
+        },
+        {
+          "value": "GGOEGXXX1613",
+          "count": 8028
+        },
+        {
+          "value": "GGOEGXXX1193",
+          "count": 7398
+        },
+        {
+          "value": "GGOEGXXX0913",
+          "count": 7371
+        },
+        {
+          "value": "GGOEGXXX1340",
+          "count": 7310
+        },
+        {
+          "value": "GGOEGXXX1038",
+          "count": 6792
+        },
+        {
+          "value": "GGOEGXXX1039",
+          "count": 6678
+        }
+      ],
+      "top_raw_names": [
+        {
+          "value": "Google Zip Hoodie F/C",
+          "count": 9178
+        },
+        {
+          "value": "Google Navy Speckled Tee",
+          "count": 8917
+        },
+        {
+          "value": "Super G Unisex Joggers",
+          "count": 8092
+        },
+        {
+          "value": "Google Campus Bike Eco Tee Navy",
+          "count": 7443
+        },
+        {
+          "value": "Google Crewneck Sweatshirt Navy",
+          "count": 7416
+        },
+        {
+          "value": "Google Badge Heavyweight Pullover Black",
+          "count": 7355
+        },
+        {
+          "value": "Google F/C Long Sleeve Tee Charcoal",
+          "count": 6834
+        },
+        {
+          "value": "Google F/C Long Sleeve Tee Ash",
+          "count": 6705
+        }
+      ],
+      "top_raw_categories": [
+        {
+          "value": "Home/Apparel/Men's / Unisex/",
+          "count": 86592
+        },
+        {
+          "value": "Home/New/",
+          "count": 22546
+        },
+        {
+          "value": "Home/Sale/",
+          "count": 21975
+        },
+        {
+          "value": "Home/Apparel/",
+          "count": 19896
+        },
+        {
+          "value": "Home/Apparel/Women's/",
+          "count": 18094
+        },
+        {
+          "value": "Home/Apparel/Hats/",
+          "count": 18026
+        },
+        {
+          "value": "Lifestyle/Bags/",
+          "count": 16800
+        },
+        {
+          "value": "Lifestyle/Drinkware/",
+          "count": 16697
+        },
+        {
+          "value": "Home/Apparel/Kids/",
+          "count": 15781
+        },
+        {
+          "value": "Home/Shop by Brand/YouTube/",
+          "count": 15242
+        }
+      ],
+      "top_promotion_names": [
+        {
+          "value": "(not set)",
+          "count": 328436
+        },
+        {
+          "value": "Reach New Heights",
+          "count": 426
+        },
+        {
+          "value": "Act Responsible",
+          "count": 179
+        },
+        {
+          "value": "Google Mural Collection",
+          "count": 161
+        },
+        {
+          "value": "Complete Your Collection",
+          "count": 141
+        },
+        {
+          "value": "",
+          "count": 21
+        }
+      ],
+      "top_creative_slots": [
+        {
+          "value": "(not set)",
+          "count": 329364
+        }
+      ],
+      "top_list_names": [
+        {
+          "value": "(not set)",
+          "count": 237296
+        },
+        {
+          "value": "Not available in demo dataset",
+          "count": 92068
+        }
+      ]
+    },
+    {
+      "event_name": "view_promotion",
+      "item_rows": 134602,
+      "bad_item_id": 117759,
+      "bad_item_name": 134601,
+      "bad_item_category": 134602,
+      "null_quantity": 134602,
+      "null_price": 134602,
+      "null_revenue": 134602,
+      "zero_revenue": 0,
+      "distinct_ids": 1,
+      "distinct_names": 1,
+      "top_raw_ids": [
+        {
+          "value": "(not set)",
+          "count": 117759
+        },
+        {
+          "value": "fall_campaign",
+          "count": 16843
+        }
+      ],
+      "top_raw_names": [
+        {
+          "value": "(not set)",
+          "count": 134601
+        },
+        {
+          "value": "Fall Campaign 2020",
+          "count": 1
+        }
+      ],
+      "top_raw_categories": [
+        {
+          "value": "(not set)",
+          "count": 134602
+        }
+      ],
+      "top_promotion_names": [
+        {
+          "value": "Reach New Heights",
+          "count": 127841
+        },
+        {
+          "value": "Act Responsible",
+          "count": 3949
+        },
+        {
+          "value": "Complete Your Collection",
+          "count": 1627
+        },
+        {
+          "value": "Google Mural Collection",
+          "count": 995
+        },
+        {
+          "value": "Not available in demo dataset",
+          "count": 188
+        },
+        {
+          "value": "",
+          "count": 1
+        },
+        {
+          "value": "(not set)",
+          "count": 1
+        }
+      ],
+      "top_creative_slots": [
+        {
+          "value": "(not set)",
+          "count": 134602
+        }
+      ],
+      "top_list_names": [
+        {
+          "value": "(not set)",
+          "count": 134602
+        }
+      ]
+    },
+    {
+      "event_name": "begin_checkout",
+      "item_rows": 77980,
+      "bad_item_id": 1933,
+      "bad_item_name": 1933,
+      "bad_item_category": 5230,
+      "null_quantity": 1933,
+      "null_price": 77980,
+      "null_revenue": 77980,
+      "zero_revenue": 0,
+      "distinct_ids": 796,
+      "distinct_names": 391,
+      "top_raw_ids": [
+        {
+          "value": "9188192",
+          "count": 2449
+        },
+        {
+          "value": "(not set)",
+          "count": 1933
+        },
+        {
+          "value": "9196652",
+          "count": 928
+        },
+        {
+          "value": "9180865",
+          "count": 919
+        },
+        {
+          "value": "9180819",
+          "count": 844
+        },
+        {
+          "value": "9195292",
+          "count": 760
+        },
+        {
+          "value": "9195032",
+          "count": 687
+        },
+        {
+          "value": "9190330",
+          "count": 663
+        }
+      ],
+      "top_raw_names": [
+        {
+          "value": "YouTube Twill Sandwich Cap Black",
+          "count": 2449
+        },
+        {
+          "value": "(not set)",
+          "count": 1933
+        },
+        {
+          "value": "Super G Unisex Joggers",
+          "count": 1185
+        },
+        {
+          "value": "Google Crewneck Sweatshirt Navy",
+          "count": 1036
+        },
+        {
+          "value": "Google Zip Hoodie F/C",
+          "count": 986
+        },
+        {
+          "value": "Google Heathered Pom Beanie",
+          "count": 928
+        },
+        {
+          "value": "Google Metallic Notebook Set",
+          "count": 919
+        },
+        {
+          "value": "Google Laptop and Cell Phone Stickers",
+          "count": 844
+        }
+      ],
+      "top_raw_categories": [
+        {
+          "value": "Apparel",
+          "count": 21026
+        },
+        {
+          "value": "New",
+          "count": 7524
+        },
+        {
+          "value": "Campus Collection",
+          "count": 6638
+        },
+        {
+          "value": "Accessories",
+          "count": 6265
+        },
+        {
+          "value": "Shop by Brand",
+          "count": 4675
+        },
+        {
+          "value": "Bags",
+          "count": 4487
+        },
+        {
+          "value": "Office",
+          "count": 4122
+        },
+        {
+          "value": "Clearance",
+          "count": 3478
+        },
+        {
+          "value": "",
+          "count": 3297
+        },
+        {
+          "value": "Drinkware",
+          "count": 3055
+        }
+      ],
+      "top_promotion_names": [
+        {
+          "value": "(not set)",
+          "count": 59042
+        },
+        {
+          "value": "Not available in demo dataset",
+          "count": 5224
+        },
+        {
+          "value": "",
+          "count": 4305
+        },
+        {
+          "value": "Reach New Heights",
+          "count": 4152
+        },
+        {
+          "value": "Act Responsible",
+          "count": 1862
+        },
+        {
+          "value": "Google Mural Collection",
+          "count": 1848
+        },
+        {
+          "value": "Complete Your Collection",
+          "count": 1547
+        }
+      ],
+      "top_creative_slots": [
+        {
+          "value": "(not set)",
+          "count": 77980
+        }
+      ],
+      "top_list_names": [
+        {
+          "value": "(not set)",
+          "count": 39148
+        },
+        {
+          "value": "Not available in demo dataset",
+          "count": 38832
+        }
+      ]
+    },
+    {
+      "event_name": "purchase",
+      "item_rows": 16003,
+      "bad_item_id": 448,
+      "bad_item_name": 448,
+      "bad_item_category": 678,
+      "null_quantity": 448,
+      "null_price": 448,
+      "null_revenue": 448,
+      "zero_revenue": 0,
+      "distinct_ids": 809,
+      "distinct_names": 395,
+      "top_raw_ids": [
+        {
+          "value": "(not set)",
+          "count": 448
+        },
+        {
+          "value": "9195032",
+          "count": 223
+        },
+        {
+          "value": "9196652",
+          "count": 194
+        },
+        {
+          "value": "9188203",
+          "count": 158
+        },
+        {
+          "value": "9190330",
+          "count": 154
+        },
+        {
+          "value": "9180819",
+          "count": 150
+        },
+        {
+          "value": "9195292",
+          "count": 144
+        },
+        {
+          "value": "9180865",
+          "count": 137
+        }
+      ],
+      "top_raw_names": [
+        {
+          "value": "(not set)",
+          "count": 448
+        },
+        {
+          "value": "Super G Unisex Joggers",
+          "count": 285
+        },
+        {
+          "value": "Google Zip Hoodie F/C",
+          "count": 256
+        },
+        {
+          "value": "Google Crewneck Sweatshirt Navy",
+          "count": 225
+        },
+        {
+          "value": "Google Camp Mug Ivory",
+          "count": 223
+        },
+        {
+          "value": "Google Heathered Pom Beanie",
+          "count": 194
+        },
+        {
+          "value": "Google Badge Heavyweight Pullover Black",
+          "count": 184
+        },
+        {
+          "value": "Google Crewneck Sweatshirt Green",
+          "count": 177
+        }
+      ],
+      "top_raw_categories": [
+        {
+          "value": "Apparel",
+          "count": 4984
+        },
+        {
+          "value": "Campus Collection",
+          "count": 1497
+        },
+        {
+          "value": "New",
+          "count": 1445
+        },
+        {
+          "value": "Accessories",
+          "count": 1276
+        },
+        {
+          "value": "Office",
+          "count": 838
+        },
+        {
+          "value": "Shop by Brand",
+          "count": 816
+        },
+        {
+          "value": "Drinkware",
+          "count": 709
+        },
+        {
+          "value": "Bags",
+          "count": 704
+        },
+        {
+          "value": "Clearance",
+          "count": 665
+        },
+        {
+          "value": "Uncategorized Items",
+          "count": 608
+        }
+      ],
+      "top_promotion_names": [
+        {
+          "value": "",
+          "count": 10201
+        },
+        {
+          "value": "(not set)",
+          "count": 2248
+        },
+        {
+          "value": "Not available in demo dataset",
+          "count": 1301
+        },
+        {
+          "value": "Reach New Heights",
+          "count": 1046
+        },
+        {
+          "value": "Act Responsible",
+          "count": 440
+        },
+        {
+          "value": "Google Mural Collection",
+          "count": 397
+        },
+        {
+          "value": "Complete Your Collection",
+          "count": 370
+        }
+      ],
+      "top_creative_slots": [
+        {
+          "value": "(not set)",
+          "count": 16003
+        }
+      ],
+      "top_list_names": [
+        {
+          "value": "Not available in demo dataset",
+          "count": 9429
+        },
+        {
+          "value": "(not set)",
+          "count": 6574
+        }
+      ]
+    },
+    {
+      "event_name": "select_promotion",
+      "item_rows": 8595,
+      "bad_item_id": 7620,
+      "bad_item_name": 8595,
+      "bad_item_category": 8595,
+      "null_quantity": 8595,
+      "null_price": 8595,
+      "null_revenue": 8595,
+      "zero_revenue": 0,
+      "distinct_ids": 1,
+      "distinct_names": 0,
+      "top_raw_ids": [
+        {
+          "value": "(not set)",
+          "count": 7620
+        },
+        {
+          "value": "fall_campaign",
+          "count": 975
+        }
+      ],
+      "top_raw_names": [
+        {
+          "value": "(not set)",
+          "count": 8595
+        }
+      ],
+      "top_raw_categories": [
+        {
+          "value": "(not set)",
+          "count": 8595
+        }
+      ],
+      "top_promotion_names": [
+        {
+          "value": "Reach New Heights",
+          "count": 2988
+        },
+        {
+          "value": "Act Responsible",
+          "count": 2953
+        },
+        {
+          "value": "Complete Your Collection",
+          "count": 1585
+        },
+        {
+          "value": "Google Mural Collection",
+          "count": 1029
+        },
+        {
+          "value": "Not available in demo dataset",
+          "count": 38
+        },
+        {
+          "value": "",
+          "count": 2
+        }
+      ],
+      "top_creative_slots": [
+        {
+          "value": "(not set)",
+          "count": 8595
+        }
+      ],
+      "top_list_names": [
+        {
+          "value": "(not set)",
+          "count": 8595
+        }
+      ]
+    },
+    {
+      "event_name": "view_item_list",
+      "item_rows": 516,
+      "bad_item_id": 8,
+      "bad_item_name": 8,
+      "bad_item_category": 8,
+      "null_quantity": 516,
+      "null_price": 516,
+      "null_revenue": 516,
+      "zero_revenue": 0,
+      "distinct_ids": 63,
+      "distinct_names": 63,
+      "top_raw_ids": [
+        {
+          "value": "GGOEGDHL116999",
+          "count": 19
+        },
+        {
+          "value": "GGOEGDNQ138099",
+          "count": 19
+        },
+        {
+          "value": "GGOEADHH129499",
+          "count": 19
+        },
+        {
+          "value": "GGOEGDBJ132299",
+          "count": 19
+        },
+        {
+          "value": "GGOEGDBD132099",
+          "count": 19
+        },
+        {
+          "value": "GGOEGDHJ116899",
+          "count": 19
+        },
+        {
+          "value": "GGCOGDHC101099",
+          "count": 19
+        },
+        {
+          "value": "GGOEADHH117199",
+          "count": 19
+        }
+      ],
+      "top_raw_names": [
+        {
+          "value": "Google Campus Bike Bottle",
+          "count": 19
+        },
+        {
+          "value": "Google Cork Base Tumbler",
+          "count": 19
+        },
+        {
+          "value": "Android Iconic Glass Bottle Green",
+          "count": 19
+        },
+        {
+          "value": "Stainless Bent Straw/Cleaner",
+          "count": 19
+        },
+        {
+          "value": "Google Bottle Cleaner",
+          "count": 19
+        },
+        {
+          "value": "Google Glass Bottle",
+          "count": 19
+        },
+        {
+          "value": "#IamRemarkable Water Bottle",
+          "count": 19
+        },
+        {
+          "value": "Android Buoy Bottle",
+          "count": 19
+        }
+      ],
+      "top_raw_categories": [
+        {
+          "value": "Lifestyle/Drinkware/",
+          "count": 228
+        },
+        {
+          "value": "Lifestyle/Bags/",
+          "count": 108
+        },
+        {
+          "value": "Home/Apparel/Women's/",
+          "count": 104
+        },
+        {
+          "value": "Home/Apparel/",
+          "count": 56
+        },
+        {
+          "value": "Accessories/",
+          "count": 12
+        },
+        {
+          "value": "(not set)",
+          "count": 8
+        }
+      ],
+      "top_promotion_names": [
+        {
+          "value": "(not set)",
+          "count": 516
+        }
+      ],
+      "top_creative_slots": [
+        {
+          "value": "(not set)",
+          "count": 516
+        }
+      ],
+      "top_list_names": [
+        {
+          "value": "Not available in demo dataset",
+          "count": 484
+        },
+        {
+          "value": "(not set)",
+          "count": 32
+        }
+      ]
+    }
+  ],
+  "purchases": {
+    "purchase_events": 5692,
+    "missing_txn": 906,
+    "distinct_txn": 4451,
+    "duplicate_events": 335,
+    "zero_revenue_events": 450,
+    "purchases_without_items": 2,
+    "purchase_revenue_usd_raw": 362165.0,
+    "purchase_revenue_usd_dedup": 339725.0
+  },
+  "devices": [
+    {
+      "device_category": "desktop",
+      "events": 2498330,
+      "view_item_events": 225037,
+      "purchase_events": 3226
+    },
+    {
+      "device_category": "mobile",
+      "events": 1704069,
+      "view_item_events": 152676,
+      "purchase_events": 2355
+    },
+    {
+      "device_category": "tablet",
+      "events": 93185,
+      "view_item_events": 8355,
+      "purchase_events": 111
+    }
+  ],
+  "keys": {
+    "distinct_ids": 1374,
+    "distinct_names": 429,
+    "ids_multi_name": 6,
+    "names_multi_id": 414,
+    "row_share_multi_id_names": 0.9988714903846434,
+    "row_share_multi_name_ids": 0.008191021237082033,
+    "purchase_rows": 16003,
+    "purchase_rows_id_viewed": 182,
+    "purchase_rows_name_viewed": 14910,
+    "top_multi_id_names": [
+      {
+        "name_key": "google navy speckled tee",
+        "ids": 7,
+        "n": 70717
+      },
+      {
+        "name_key": "super g unisex joggers",
+        "ids": 8,
+        "n": 65058
+      },
+      {
+        "name_key": "google zip hoodie f/c",
+        "ids": 9,
+        "n": 63062
+      },
+      {
+        "name_key": "google campus bike eco tee navy",
+        "ids": 7,
+        "n": 54819
+      },
+      {
+        "name_key": "google women's striped l/s",
+        "ids": 2,
+        "n": 53989
+      },
+      {
+        "name_key": "android large removable sticker sheet",
+        "ids": 2,
+        "n": 49054
+      },
+      {
+        "name_key": "android sm s/f18 sticker sheet",
+        "ids": 2,
+        "n": 48450
+      },
+      {
+        "name_key": "google tee yellow",
+        "ids": 4,
+        "n": 43999
+      },
+      {
+        "name_key": "google badge heavyweight pullover black",
+        "ids": 9,
+        "n": 43925
+      },
+      {
+        "name_key": "google f/c long sleeve tee charcoal",
+        "ids": 2,
+        "n": 43826
+      },
+      {
+        "name_key": "google crewneck sweatshirt navy",
+        "ids": 8,
+        "n": 43127
+      },
+      {
+        "name_key": "google small standard journal navy",
+        "ids": 2,
+        "n": 42954
+      },
+      {
+        "name_key": "android large trace journal black",
+        "ids": 2,
+        "n": 40847
+      },
+      {
+        "name_key": "android super hero 3d framed art",
+        "ids": 2,
+        "n": 40309
+      },
+      {
+        "name_key": "google tee green",
+        "ids": 3,
+        "n": 39732
+      },
+      {
+        "name_key": "youtube icon tee grey",
+        "ids": 9,
+        "n": 39220
+      },
+      {
+        "name_key": "android techie 3d framed art",
+        "ids": 2,
+        "n": 39195
+      },
+      {
+        "name_key": "google heather green speckled tee",
+        "ids": 7,
+        "n": 39143
+      },
+      {
+        "name_key": "android small trace journal black",
+        "ids": 2,
+        "n": 38481
+      },
+      {
+        "name_key": "google sherpa zip hoodie charcoal",
+        "ids": 8,
+        "n": 38161
+      },
+      {
+        "name_key": "youtube women's favorite tee white",
+        "ids": 3,
+        "n": 37783
+      },
+      {
+        "name_key": "google f/c long sleeve tee ash",
+        "ids": 2,
+        "n": 37124
+      },
+      {
+        "name_key": "google crewneck sweatshirt green",
+        "ids": 9,
+        "n": 36755
+      },
+      {
+        "name_key": "google land & sea french terry sweatshirt",
+        "ids": 13,
+        "n": 36278
+      },
+      {
+        "name_key": "google land & sea cotton cap",
+        "ids": 2,
+        "n": 34086
+      }
+    ],
+    "top_multi_name_ids": [
+      {
+        "item_id": "GGOECXXX1630",
+        "names": 2,
+        "n": 15228
+      },
+      {
+        "item_id": "GGOECDHQ163999",
+        "names": 2,
+        "n": 8351
+      },
+      {
+        "item_id": "GGOEAFKQ130599",
+        "names": 2,
+        "n": 4210
+      },
+      {
+        "item_id": "9200317",
+        "names": 2,
+        "n": 146
+      },
+      {
+        "item_id": "9200364",
+        "names": 2,
+        "n": 107
+      },
+      {
+        "item_id": "9196844",
+        "names": 2,
+        "n": 62
+      }
+    ]
+  },
+  "view_item_composition": {
+    "view_events": 386068,
+    "multi_item_events": 233150,
+    "multi_item_same_name": 314,
+    "first_item_in_title": 0,
+    "any_item_in_title": 0
+  }
+}

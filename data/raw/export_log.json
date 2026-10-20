@@ -1,0 +1,317 @@
+[
+  {
+    "step": "profile_items_per_event",
+    "run_at": "2026-10-20T07:03:27+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "35e8dba0-64c0-4abe-961a-a3d626a476f6",
+    "location": "US",
+    "bytes_processed": 1048427370,
+    "bytes_billed": 1048576000,
+    "cache_hit": false,
+    "rows": 17,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "b956e3007a268d2ab2a30b7c0298bdcaba7c4ce42e0ef73fc3f9eb4d843048a7",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_items_per_event"
+    }
+  },
+  {
+    "step": "profile_item_fields",
+    "run_at": "2026-10-20T07:03:33+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "47a8b867-e1cb-4172-a03f-230390e1ade6",
+    "location": "US",
+    "bytes_processed": 476433850,
+    "bytes_billed": 477102080,
+    "cache_hit": false,
+    "rows": 8,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "1dba9535fd916881b2d6e36ff653e56e9fdce09d114a6ae4887e3fc7e3bec806",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_item_fields"
+    }
+  },
+  {
+    "step": "profile_categories",
+    "run_at": "2026-10-20T07:03:38+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "0666c6af-0510-4206-b198-8d47865aaee7",
+    "location": "US",
+    "bytes_processed": 351688385,
+    "bytes_billed": 352321536,
+    "cache_hit": false,
+    "rows": 82,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "875ea23cc48831bc008c61d2f15edfdd3c1d604fe5fec0c5d4e7f960eee8dea7",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_categories"
+    }
+  },
+  {
+    "step": "profile_keys",
+    "run_at": "2026-10-20T07:03:45+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "11b72787-9f74-4e3a-bc70-50ae792e7f54",
+    "location": "US",
+    "bytes_processed": 228046989,
+    "bytes_billed": 228589568,
+    "cache_hit": false,
+    "rows": 1,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "55171646f6f9ad6c8ca3adabc66e0031d977c5aba72cf07326a33cefee8c778d",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_keys"
+    }
+  },
+  {
+    "step": "profile_purchases",
+    "run_at": "2026-10-20T07:03:49+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "a00cf74f-72e1-423a-bcce-129291516d96",
+    "location": "US",
+    "bytes_processed": 1056667426,
+    "bytes_billed": 1056964608,
+    "cache_hit": false,
+    "rows": 1,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "593e8b63e2bee284f62caff7a0094d34be1e694e83c9c0dfd7d21b0ce10b2268",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_purchases"
+    }
+  },
+  {
+    "step": "profile_devices",
+    "run_at": "2026-10-20T07:03:53+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "67b6bbf8-c582-44ae-aa0b-a9440b0df90e",
+    "location": "US",
+    "bytes_processed": 92817563,
+    "bytes_billed": 93323264,
+    "cache_hit": false,
+    "rows": 3,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "a873bc73c25f45710077f9a23c837a226a4a6566a49ebc24e90cb1cb956d07d4",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_devices"
+    }
+  },
+  {
+    "step": "profile_view_item_composition",
+    "run_at": "2026-10-20T07:03:56+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "8bf1a427-1426-4290-95ab-824acd99ba79",
+    "location": "US",
+    "bytes_processed": 1420488056,
+    "bytes_billed": 1420820480,
+    "cache_hit": false,
+    "rows": 1,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "c7c33e698cebdf5315d589a55a82d0f695b867797d2f3b47269d97a0a78e326a",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_view_item_composition"
+    }
+  },
+  {
+    "step": "export_item_daily",
+    "snapshot": "bq_item_daily",
+    "run_at": "2026-10-20T07:08:45+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "386add45-8571-44bd-a60e-cae1832e3174",
+    "location": "US",
+    "bytes_processed": 440557368,
+    "bytes_billed": 441450496,
+    "cache_hit": false,
+    "rows": 96653,
+    "cap_bytes": 6442450944,
+    "sql_sha256": "0fce3f2d52e4d3b849e6068a5652bc404c5cd5bdc8228e8440377076ace44683",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "export_item_daily"
+    },
+    "file": "raw/bq_item_daily.parquet",
+    "sha256": "d56025be432ed1a666299007405d41ce86e6c2f6202b72fed6459f9c8a29010d"
+  },
+  {
+    "step": "export_item_attrs",
+    "snapshot": "bq_item_attrs",
+    "run_at": "2026-10-20T07:08:50+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "635e028b-7368-4aea-8eb9-fe13acf249e2",
+    "location": "US",
+    "bytes_processed": 437791683,
+    "bytes_billed": 438304768,
+    "cache_hit": false,
+    "rows": 8321,
+    "cap_bytes": 6442450944,
+    "sql_sha256": "f01f2d49d4e9910786ed21f933ce72e21460001bfc7c2e1321bb708deac35356",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "export_item_attrs"
+    },
+    "file": "raw/bq_item_attrs.parquet",
+    "sha256": "016908156dcbfcb573bada417dcae4905cba62f7d9b0d798315aaf3987901c83"
+  },
+  {
+    "step": "export_promo_daily",
+    "snapshot": "bq_promo_daily",
+    "run_at": "2026-10-20T07:08:54+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "65928b1d-2a58-45e4-9f40-02be5cdf5e05",
+    "location": "US",
+    "bytes_processed": 609317663,
+    "bytes_billed": 610271232,
+    "cache_hit": false,
+    "rows": 2330,
+    "cap_bytes": 6442450944,
+    "sql_sha256": "f58678d1b678c5990015ccbe0c326b86600806f34ff59b94c9e84f9225d74c8b",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "export_promo_daily"
+    },
+    "file": "raw/bq_promo_daily.parquet",
+    "sha256": "75a6b8a6536f3043863a2e758f6813bb45864463b826dbd6291efcb26aab7ff7"
+  },
+  {
+    "step": "profile_items_per_event",
+    "run_at": "2026-10-20T07:09:29+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "ae02c0a3-8fae-451c-81e9-f6943b41846f",
+    "location": "US",
+    "bytes_processed": 1048427370,
+    "bytes_billed": 1048576000,
+    "cache_hit": false,
+    "rows": 17,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "b956e3007a268d2ab2a30b7c0298bdcaba7c4ce42e0ef73fc3f9eb4d843048a7",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_items_per_event"
+    }
+  },
+  {
+    "step": "profile_item_fields",
+    "run_at": "2026-10-20T07:09:36+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "8e49ced5-cf56-4d45-bd67-f9c6da36eb17",
+    "location": "US",
+    "bytes_processed": 476433850,
+    "bytes_billed": 477102080,
+    "cache_hit": false,
+    "rows": 8,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "1dba9535fd916881b2d6e36ff653e56e9fdce09d114a6ae4887e3fc7e3bec806",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_item_fields"
+    }
+  },
+  {
+    "step": "profile_categories",
+    "run_at": "2026-10-20T07:09:41+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "d019f7a7-376c-4b9b-baa4-4d44fba1610c",
+    "location": "US",
+    "bytes_processed": 351688385,
+    "bytes_billed": 352321536,
+    "cache_hit": false,
+    "rows": 82,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "875ea23cc48831bc008c61d2f15edfdd3c1d604fe5fec0c5d4e7f960eee8dea7",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_categories"
+    }
+  },
+  {
+    "step": "profile_keys",
+    "run_at": "2026-10-20T07:09:47+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "9eba7296-9ee5-42d3-b386-91c5efa047db",
+    "location": "US",
+    "bytes_processed": 228046989,
+    "bytes_billed": 228589568,
+    "cache_hit": false,
+    "rows": 1,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "55171646f6f9ad6c8ca3adabc66e0031d977c5aba72cf07326a33cefee8c778d",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_keys"
+    }
+  },
+  {
+    "step": "profile_purchases",
+    "run_at": "2026-10-20T07:09:51+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "c258064f-a09d-4f7b-9d5a-08b02dc37dd6",
+    "location": "US",
+    "bytes_processed": 1056667426,
+    "bytes_billed": 1056964608,
+    "cache_hit": false,
+    "rows": 1,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "593e8b63e2bee284f62caff7a0094d34be1e694e83c9c0dfd7d21b0ce10b2268",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_purchases"
+    }
+  },
+  {
+    "step": "profile_devices",
+    "run_at": "2026-10-20T07:09:54+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "10b6895d-a8da-4a13-9cf7-fbd77010ceed",
+    "location": "US",
+    "bytes_processed": 92817563,
+    "bytes_billed": 93323264,
+    "cache_hit": false,
+    "rows": 3,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "a873bc73c25f45710077f9a23c837a226a4a6566a49ebc24e90cb1cb956d07d4",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_devices"
+    }
+  },
+  {
+    "step": "profile_view_item_composition",
+    "run_at": "2026-10-20T07:09:58+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "c2524d4d-e364-4dad-a17d-038f7da218a7",
+    "location": "US",
+    "bytes_processed": 1420488056,
+    "bytes_billed": 1420820480,
+    "cache_hit": false,
+    "rows": 1,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "c7c33e698cebdf5315d589a55a82d0f695b867797d2f3b47269d97a0a78e326a",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_view_item_composition"
+    }
+  },
+  {
+    "step": "profile_view_offsets",
+    "run_at": "2026-10-20T07:10:03+00:00",
+    "project": "visualanalyticsproj-fall2026",
+    "job_id": "de145ca8-789d-4369-829d-ca7d3de900c7",
+    "location": "US",
+    "bytes_processed": 1108474449,
+    "bytes_billed": 1109393408,
+    "cache_hit": false,
+    "rows": 1,
+    "cap_bytes": 3221225472,
+    "sql_sha256": "bdf11a4a5421883306046c5c93148dad273beb8069a79588ee0ef3eff6da5abd",
+    "labels": {
+      "app": "itcs5122-team9",
+      "step": "profile_view_offsets"
+    }
+  }
+]

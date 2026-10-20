@@ -1,0 +1,15 @@
+# Raw event export (450 MB, over GitHub's limit) - regenerate as described in README
+ga4_events_export.csv
+
+# Secrets and machine-local settings
+.streamlit/secrets.toml
+config/local.json
+
+# Generated / caches
+data_synthetic/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.tmp
+.venv/
+desktop.ini

@@ -1,0 +1,26 @@
+{
+  "event_count": 4295584,
+  "user_count": 270154,
+  "day_count": 92,
+  "matches_pitch": true,
+  "expected": {
+    "event_count": 4295584,
+    "user_count": 270154,
+    "day_count": 92
+  },
+  "sql": "-- Proof it loads (pitch slide 5, verbatim).\n-- Expected: event_count 4295584, user_count 270154, day_count 92.\nSELECT\n  COUNT(*) AS event_count,\n  COUNT(DISTINCT user_pseudo_id) AS user_count,\n  COUNT(DISTINCT event_date) AS day_count\nFROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`\n",
+  "project": "visualanalyticsproj-fall2026",
+  "run_at": "2026-10-20T07:01:58+00:00",
+  "job_id": "7e78d95f-8c62-45a1-bc1c-e14fd7d93ac4",
+  "location": "US",
+  "bytes_processed": 131761313,
+  "bytes_billed": 132120576,
+  "cache_hit": false,
+  "rows": 1,
+  "cap_bytes": 3221225472,
+  "sql_sha256": "81444e96923ff99ea7ee71b9b9d56985dd21212df7c11d1f0ae69d07e132862a",
+  "labels": {
+    "app": "itcs5122-team9",
+    "step": "proof_counts"
+  }
+}
