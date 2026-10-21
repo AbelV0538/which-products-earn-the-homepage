@@ -548,7 +548,8 @@ def _feature_bullet(e: Mapping[str, Any]) -> str:
         text = (
             f"- {_cite(e)} converts at {_fmt_pct(e.get('conversion_pct'))} on only {_fmt_num(e.get('views'))} views "
             f"({_fmt_pct(e.get('adjusted_conversion_pct'))} adjusted{vs_txt}): about "
-            f"{_fmt_num(lift, 2 if lift is not None and lift < 1 else 1)} extra purchases per 1,000 extra views."
+            f"{_fmt_num(lift, 2 if lift is not None and lift < 1 else 1)} extra purchases per 1,000 extra views "
+            "if new viewers convert like current ones."
         )
     else:
         text = (
@@ -597,7 +598,7 @@ def _cannibal_bullet(payload: Mapping[str, Any]) -> str | None:
     a, b = p.get("spiking_product") or {}, p.get("affected_product") or {}
     hedge = "" if p.get("status") == "Likely cannibalized" else " (possible, not yet conclusive)"
     return (
-        f"- Cannibalization{hedge}: on {_cite(a)}'s spike days, {_cite(b)} sold about "
+        f"- Cannibalization{hedge}: over the full season, on {_cite(a)}'s spike days, {_cite(b)} sold about "
         f"{_fmt_num(p.get('dip_pct'))}% less than expected; avoid featuring both at once."
     )
 

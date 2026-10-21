@@ -474,3 +474,16 @@ def test_real_site_conversion_matches_pipeline(real):
     keys = ("baseline", "cyber_week", "december", "full")
     out = metrics.site_conversion(real["site_daily"], [config.PERIODS[k] for k in keys])
     assert (out["cr"] * 100).round(2).tolist() == [1.18, 1.85, 1.70, 1.47]
+
+
+def test_prior_strength_raw_is_the_unclamped_estimate():
+    lo, hi = config.SHRINK_M_BOUNDS
+    wild = _products([(f"p{i}", "Apparel", 1000, 0 if i % 2 else 400) for i in range(30)])
+    raw = metrics.prior_strength_raw(wild)
+    assert np.isfinite(raw) and raw < lo and metrics.estimate_prior_strength(wild) == lo
+    mid = _beta_binomial(400.0, seed=11)
+    assert metrics.prior_strength_raw(mid) == pytest.approx(metrics.estimate_prior_strength(mid))
+    exact = _products([(f"p{i}", "Apparel", 1000 * (i + 1), 10 * (i + 1)) for i in range(30)])
+    assert metrics.prior_strength_raw(exact) == np.inf
+    assert np.isnan(metrics.prior_strength_raw(_products([("a", "Apparel", 50, 1), ("b", "Apparel", 5000, 30)])))
+    assert hi > lo

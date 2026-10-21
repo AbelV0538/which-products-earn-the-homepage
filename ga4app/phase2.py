@@ -103,6 +103,7 @@ _ALERT_SCHEMA: dict[str, str] = {
     "interest_base": "float64",
     "interest_focus": "float64",
     "M_ext": "float64",  # Google momentum: mean interest focus / baseline
+    "m_ext_rel": "float64",  # M_ext / median M_ext of the other reliable category groups
     "views_base": "int64",
     "views_focus": "int64",
     "days_base": "int64",
@@ -360,12 +361,18 @@ def _spike_days(spikes: pd.DataFrame | None) -> pd.DataFrame:
     return pd.DataFrame({"product_key": hit["product_key"].astype(str), "event_date": _as_datetime(hit["event_date"])})
 
 
-def _pair_counts(category: str, g: pd.DataFrame, spike_days: pd.DataFrame, top_k: int) -> pd.DataFrame | None:
+def _pair_counts(
+    category: str, g: pd.DataFrame, spike_days: pd.DataFrame, top_k: int, local_days: int = 7
+) -> pd.DataFrame | None:
     """Observed and expected purchase sums for every ordered pair in one category's top-K.
 
     B's expected purchases on day d are ``V_B(d) * cr_peers(d)``, where the peers are the
     category minus {A, B}. Days on which the peers had no views carry no expectation, so they
     are dropped for that pair.
+
+    The "other" (baseline) days are A's non-spike days within ``local_days`` calendar days of
+    any of A's spike days, so B's usual pace is measured near the spikes and B's own
+    seasonality (e.g. a December peak against January spikes) does not masquerade as a dip.
     """
     by_day = g.groupby("event_date")["views"].sum()
     days = by_day.index[by_day.to_numpy() > 0]
@@ -389,6 +396,12 @@ def _pair_counts(category: str, g: pd.DataFrame, spike_days: pd.DataFrame, top_k
     cols = pd.DatetimeIndex(days).get_indexer(sp["event_date"])
     ok = (rows >= 0) & (cols >= 0)
     spiking[rows[ok], cols[ok]] = True
+    # near[i, d]: day d lies within +/- local_days of one of product i's spike days.
+    ordinal = (pd.DatetimeIndex(days).normalize() - pd.Timestamp("1970-01-01")).days.to_numpy()
+    near = np.zeros_like(spiking)
+    for i in np.flatnonzero(spiking.any(axis=1)):
+        gap = np.abs(ordinal[:, None] - ordinal[spiking[i]][None, :])
+        near[i] = (gap <= local_days).any(axis=1)
 
     a, b = np.nonzero(~np.eye(len(top), dtype=bool))
     v_b, p_b = v_top[b], p_top[b]
@@ -397,7 +410,7 @@ def _pair_counts(category: str, g: pd.DataFrame, spike_days: pd.DataFrame, top_k
     valid = peer_v > 0
     expected = v_b * np.divide(peer_p, peer_v, out=np.zeros_like(peer_v), where=valid)
     on = spiking[a] & valid
-    off = ~spiking[a] & valid
+    off = ~spiking[a] & near[a] & valid
     keys = np.asarray(top, dtype=object)
     return pd.DataFrame(
         {
@@ -428,8 +441,8 @@ def _pair_reason(r, code: str, n_tested: int, g: Mapping[str, float]) -> str:
         return f"{a} had {_plural(r.n_spike_days, 'spike day')} in this window; at least {g['min_spike_days']} are needed."
     if code == "other_days":
         return (
-            f"Only {_plural(r.n_other_days, 'non-spike day')} in this window; at least "
-            f"{g['min_other_days']} are needed for a baseline. Widen the date range."
+            f"Only {_plural(r.n_other_days, 'non-spike day')} within {_plural(g['local_days'], 'day')} of {a}'s spikes; "
+            f"at least {g['min_other_days']} are needed for a baseline. Widen the date range."
         )
     if code == "purchases":
         return f"{b} had {_plural(r.n, 'purchase')} on the compared days; at least {g['min_purchases']} are needed."
@@ -443,10 +456,10 @@ def _pair_reason(r, code: str, n_tested: int, g: Mapping[str, float]) -> str:
         )
     if code == "spike_views":
         return f"{b} had {r.spike_views_b:,} views on {a}'s spike days; at least {g['min_spike_views']:,} are needed."
-    # "Usual pace" = B's own rate relative to its same-day peers on the other days, so
+    # "Usual pace" = B's own rate relative to its same-day peers on nearby non-spike days, so
     # O_s / usual == rr and a best seller is not compared with average products.
     usual = r.E_s * r.O_n / r.E_n
-    sold = f"{b} sold {r.O_s:,} vs {usual:.1f} expected at its usual pace against same-day category peers"
+    sold = f"{b} sold {r.O_s:,} vs {usual:.1f} expected at its pace on nearby days (against same-day category peers)"
     if r.status == LIKELY:
         return f"On {a}'s {r.n_spike_days} spike days, {sold} ({r.dip:.0%} lower; q {_fmt_p(r.q_value)})."
     if r.status == POSSIBLE:
@@ -470,6 +483,7 @@ def cannibalization_tests(
     top_k: int = _C["top_k"],
     min_spike_days: int = _C["min_spike_days"],
     min_other_days: int = _C["min_other_days"],
+    local_days: int = 7,
     min_purchases: int = _C["min_purchases"],
     min_expected: float = _C["min_expected"],
     min_spike_views: int = _C["min_spike_views"],
@@ -483,6 +497,11 @@ def cannibalization_tests(
     One row per ordered pair (A, B) among each category's ``top_k`` products by in-scope
     views, using the spike days in ``spikes`` (``exposure_spikes`` with the same ``f``; computed
     with defaults when None). Under H0, ``O_s | n ~ Binomial(n, pi0)``.
+
+    The baseline ("other") days are a LOCAL window: A's non-spike days within ``local_days``
+    (default 7) calendar days of any A spike day. ``O_n``/``E_n``, the ``min_other_days`` guard
+    and the Fisher secondary check all use only those days, so a seasonal swing in B over the
+    season (not caused by A) is not read as cannibalization.
 
     Status:
     - "Insufficient data" when a guard fails: spike days, other days, purchases, expected
@@ -505,7 +524,7 @@ def cannibalization_tests(
     parts = [
         part
         for category, g in daily.groupby("category_group", sort=True, observed=True)
-        if (part := _pair_counts(str(category), g, days, top_k)) is not None
+        if (part := _pair_counts(str(category), g, days, top_k, local_days)) is not None
     ]
     if not parts:
         return _empty(_TEST_SCHEMA)
@@ -562,6 +581,7 @@ def cannibalization_tests(
     thresholds = {
         "min_spike_days": min_spike_days,
         "min_other_days": min_other_days,
+        "local_days": local_days,
         "min_purchases": min_purchases,
         "min_expected": min_expected,
         "min_spike_views": min_spike_views,
@@ -799,13 +819,23 @@ def _alert_reason(r: Mapping, base: Period, focus: Period, g: Mapping[str, float
     site = f"on-site views per day {r['M_site'] - 1:+.0%}"
     if r["flagged"]:
         return (
-            f"{ext} in {focus.label} vs {base.label}, but {site}: demand outside the store is "
+            f"{ext} in {focus.label} vs {base.label} ({r['m_ext_rel']:.2f}x the other categories' rise), "
+            f"but {site}: demand outside the store is outrunning our exposure (gap {r['gap']:.2f}x). "
+            "Promote ahead of demand."
+            if np.isfinite(r.get("m_ext_rel", np.nan))
+            else f"{ext} in {focus.label} vs {base.label}, but {site}: demand outside the store is "
             f"outrunning our exposure (gap {r['gap']:.2f}x). Promote ahead of demand."
         )
     if r["views_base"] < g["min_base_views"]:
         return f"{ext}, but only {r['views_base']:,} baseline views on site (at least {g['min_base_views']:,} are needed)."
     if r["M_ext"] < g["ext_min"]:
         return f"{ext} in {focus.label} vs {base.label}: not trending (needs {g['ext_min'] - 1:+.0%})."
+    rel = r.get("m_ext_rel", np.nan)
+    if np.isfinite(rel) and rel < g["gap_min"]:
+        return (
+            f"{ext}, but that is only {rel:.2f}x the other categories' rise (needs {g['gap_min']:.2f}x): "
+            "the general holiday tide, not a category-specific trend."
+        )
     return f"{ext} and {site}: our exposure is keeping pace (gap {r['gap']:.2f}x; needs {g['gap_min']:.2f}x)."
 
 
@@ -832,8 +862,13 @@ def trending_alerts(
     is the mean over its reliable keywords (base mean >= ``min_base_interest``).
     ``M_site`` = (group views / day, focus) / (group views / day, base), and ``gap = M_ext / M_site``.
 
-    A group is flagged when it is reliable, ``M_ext >= ext_min``, ``gap >= gap_min`` and
-    baseline views >= ``min_base_views``. For flagged groups, ``promote_ahead`` lists products
+    ``m_ext_rel`` = ``M_ext`` / median ``M_ext`` of the OTHER reliable category groups in this
+    comparison (the store's categories, also used as the yardstick for brands): generic holiday keywords ("gift ideas", "stocking stuffers")
+    rise every December, so a group must outgrow the general holiday tide, not just rise.
+
+    A group is flagged when it is reliable, ``M_ext >= ext_min``, ``gap >= gap_min``,
+    ``m_ext_rel >= gap_min`` (skipped when there is no other reliable group to benchmark
+    against, then NaN) and baseline views >= ``min_base_views``. For flagged groups, ``promote_ahead`` lists products
     from ``products_scored`` (``types.PRODUCT_COLUMNS``) with ``cr_adj`` above the group prior and
     views below ``th_views`` (default: median views of eligible products). ``f`` sets devices
     and categories; its dates are ignored. With no trends data, returns an empty frame.
@@ -860,6 +895,10 @@ def trending_alerts(
         "min_base_interest": min_base_interest,
     }
 
+    # Group-level M_ext of every reliable group, for the cross-group benchmark.
+    rel_kw = kw[kw["reliable"]]
+    group_ext = rel_kw.groupby(gkeys)["m_ext"].mean().dropna()
+
     rows = []
     for (group_type, group), k in kw.groupby(gkeys, sort=True):
         reliable = bool(k["reliable"].any())
@@ -872,7 +911,14 @@ def trending_alerts(
             gap = np.nan
         else:
             gap = m_ext / m_site if m_site > 0 else np.inf
-        flagged = bool(reliable and m_ext >= ext_min and gap >= gap_min and vb >= min_base_views)
+        others = group_ext[
+            (group_ext.index.get_level_values(0) == "category")
+            & ~((group_ext.index.get_level_values(0) == group_type) & (group_ext.index.get_level_values(1) == group))
+        ]
+        bench = float(others.median()) if len(others) else np.nan
+        m_ext_rel = m_ext / bench if np.isfinite(bench) and bench > 0 and np.isfinite(m_ext) else np.nan
+        beats_tide = bool(np.isnan(m_ext_rel) or m_ext_rel >= gap_min)
+        flagged = bool(reliable and m_ext >= ext_min and gap >= gap_min and beats_tide and vb >= min_base_views)
         promote, names = _promote_ahead(products_scored, group_type, group, cutoff, max_promote) if flagged else ([], [])
         row = {
             "group_type": group_type,
@@ -882,6 +928,7 @@ def trending_alerts(
             "interest_base": float(use["interest_base"].mean()),
             "interest_focus": float(use["interest_focus"].mean()),
             "M_ext": m_ext,
+            "m_ext_rel": m_ext_rel,
             "views_base": vb,
             "views_focus": vf,
             "days_base": db,

@@ -25,6 +25,15 @@ This is the detailed design behind the approved plan. **The adjustments in this 
 6. **OpenRouter model list.** `anthropic/claude-opus-5.5` is the default; the others are `anthropic/claude-sonnet-5.5`, `anthropic/claude-haiku-5.5`, `anthropic/claude-fable-5.1`, `openrouter/free`, `google/gemma-4-31b-it:free`, and a custom ID. Paid models fall back to `anthropic/claude-sonnet-5.5`. Free models have no fallbacks.
 7. **Scatter colours.** The 3 largest category groups take `#2a78d6, #eb6834, #1baf7a`; all other groups are "Other" `#8A8F98`. Colours are frozen in the manifest, so colour follows the entity. A "highlight one category" mode is also provided. Never use more than 3 categorical hues on the scatter.
 8. **No synthetic data in the final app.** Synthetic snapshots are only for tests and development (tmp dirs, or `data_synthetic/`). The app shows a SYNTHETIC banner whenever `manifest.source == "synthetic"`.
+10. **Post-build changes from the review, 2026-10-21.** These override §5 where they differ.
+    - **Cannibalization baseline.** B's "usual pace" (O_n/E_n) is measured only on A's non-spike days within ±7 days of one of A's spike days (`phase2.cannibalization_tests(local_days=7)`), not on the whole season. The Fisher check uses the same days.
+      - The whole-season baseline flagged seasonal artifacts: Google Sunglasses sells more slowly in January.
+      - With the local baseline, no real pair is flagged.
+    - **Trend alert benchmark.** `trending_alerts` adds `m_ext_rel` = M_ext ÷ the median M_ext of the other reliable category groups. A group is flagged only if the old rules hold and `m_ext_rel` ≥ 1.15. This discounts the generic December lift in gift searches.
+    - **Holiday Shift comparisons.** `config.COMPARISONS` adds baseline vs Black Friday weekend and baseline vs Cyber Monday.
+    - **Name aliases (R1).** 8 legacy purchase-catalogue names are folded into their viewed product (`taxonomy.NAME_ALIASES`, recorded in `manifest.name_aliases`).
+    - **Google Trends.** pytrends served all 13 keywords; trendspy was rate-limited (HTTP 429).
+    - **Shrinkage strength m.** The raw method-of-moments estimate is about 70; it is floored at 100 (`metrics.prior_strength_raw` exposes the raw value).
 9. **Shrinkage strength `m` is computed at runtime.** `metrics.estimate_prior_strength` runs over full-season, all-device data and is cached per data version (`data.get_snapshot`). `manifest.shrinkage_m` is optional.
 
 ## Real-data findings (BigQuery profiling, 2026-10-20) — these override the assumptions below

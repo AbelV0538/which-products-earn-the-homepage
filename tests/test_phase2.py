@@ -180,9 +180,10 @@ def test_no_dip_when_conversion_is_unchanged():
     assert len(t) == 5 * 4  # every ordered pair of the category's 5 products
     r = _pair(t, "a", "b")
     assert bool(r["tested"]) and r["status"] == phase2.NO_EVIDENCE
-    assert (r["n_spike_days"], r["n_other_days"]) == (5, 35)
-    assert (r["O_s"], r["O_n"]) == (40, 280)
-    assert r["E_s"] == pytest.approx(40.0) and r["E_n"] == pytest.approx(280.0)
+    # Local baseline: non-spike days within +/-7 days of a spike -> days 0..34 minus 5 spikes.
+    assert (r["n_spike_days"], r["n_other_days"]) == (5, 30)
+    assert (r["O_s"], r["O_n"]) == (40, 240)
+    assert r["E_s"] == pytest.approx(40.0) and r["E_n"] == pytest.approx(240.0)
     assert r["rr"] == pytest.approx(1.0)
     assert r["rr_low"] < 1 < r["rr_high"]
     # Pairs whose A never spiked are guarded out.
@@ -198,8 +199,8 @@ def test_dip_statistics_match_scipy():
     t = phase2.cannibalization_tests(item, dim, _spikes("a", spike_idx))
     r = _pair(t, "a", "b")
 
-    k, m = 10, 280  # O_s, O_n
-    e_s, e_n = 40.0, 280.0  # 400 views x the peers' 2% rate
+    k, m = 10, 240  # O_s, O_n (30 local non-spike days)
+    e_s, e_n = 40.0, 240.0  # 400 views x the peers' 2% rate
     assert (r["O_s"], r["O_n"]) == (k, m)
     assert r["E_s"] == pytest.approx(e_s) and r["E_n"] == pytest.approx(e_n)
     assert r["rr"] == pytest.approx((k / e_s) / (m / e_n))
@@ -208,13 +209,30 @@ def test_dip_statistics_match_scipy():
     ci = stats.binomtest(k, k + m).proportion_ci(confidence_level=0.95, method="exact")
     to_rr = lambda pi: pi / (1 - pi) * e_n / e_s  # noqa: E731
     assert r["rr_low"] == pytest.approx(to_rr(ci.low)) and r["rr_high"] == pytest.approx(to_rr(ci.high))
-    # Peers (p1-p3) sell 30 a day: 150 on spike days, 1,050 on the others.
-    fisher = stats.fisher_exact([[k, m], [150, 1050]], alternative="less").pvalue
+    # Peers (p1-p3) sell 30 a day: 150 on spike days, 900 on the 30 local other days.
+    fisher = stats.fisher_exact([[k, m], [150, 900]], alternative="less").pvalue
     assert r["fisher_p"] == pytest.approx(fisher)
     assert r["status"] == phase2.LIKELY and r["rr"] <= config.CANNIBAL["rr_flag"]
     assert "B sold 10" in r["reason"] and "spike days" in r["reason"]
     assert t.iloc[0]["status"] == phase2.LIKELY  # flagged pairs sort first
     assert phase2.conflict_pairs(t) == {frozenset(("a", "b"))}
+
+
+def test_local_baseline_ignores_b_seasonality():
+    """B converts 3x early in the season, far from A's late spikes: not a dip near the spikes."""
+    item, dim = _flat_category(days=60)
+    early = item["event_date"] < pd.Timestamp(START) + pd.Timedelta(days=30)
+    item.loc[early & (item["product_key"] == "b"), "purchases"] = 24
+    spike_idx = [45, 50, 55]
+    local = _pair(phase2.cannibalization_tests(item, dim, _spikes("a", spike_idx)), "a", "b")
+    assert local["n_other_days"] == 60 - 38 - 3  # days 38..59 minus the spikes
+    assert local["rr"] == pytest.approx(1.0) and local["status"] == phase2.NO_EVIDENCE
+    assert "nearby days" in local["reason"]
+    # A season-wide baseline would read B's early peak as a dip on the spike days.
+    wide = _pair(phase2.cannibalization_tests(item, dim, _spikes("a", spike_idx), local_days=100), "a", "b")
+    assert wide["rr"] < config.CANNIBAL["rr_flag"]
+    narrow = _pair(phase2.cannibalization_tests(item, dim, _spikes("a", spike_idx), local_days=1), "a", "b")
+    assert narrow["status"] == phase2.INSUFFICIENT and "within 1 day of" in narrow["reason"]
 
 
 def test_category_shock_on_spike_days_is_absorbed():
@@ -408,6 +426,7 @@ def test_trending_alert_flags_the_rising_group():
     assert bags["promote_ahead"] == ["bag2", "bag3"] and bags["promote_names"] == ["Bag Two", "Bag Three"]
     assert not bool(office["flagged"]) and office["promote_ahead"] == []
     assert office["M_ext"] == pytest.approx(1.0)
+    assert bags["m_ext_rel"] == pytest.approx(1.6) and office["m_ext_rel"] == pytest.approx(1 / 1.6)
     assert al.iloc[0]["group"] == "Bags"  # flagged first
     assert "Promote ahead" in bags["reason"]
 
@@ -423,6 +442,23 @@ def test_trending_alert_guards():
     row = al.set_index("group").loc["Bags"]
     assert not bool(row["reliable"]) and not bool(row["flagged"])
     assert "too low" in row["reason"]
+
+
+def test_trending_alert_needs_to_beat_the_holiday_tide():
+    """Every category's interest rises 60%: Bags passes the old rules but only matches the tide."""
+    trends, item, dim, km = _trend_frames()
+    dec = pd.to_datetime(trends["date"]).between(pd.Timestamp(FOCUS.start), pd.Timestamp(FOCUS.end))
+    trends.loc[dec & (trends["keyword"] == "notebook"), "interest"] = 60.0 * 1.6
+    al = phase2.trending_alerts(trends, item, dim, km, BASE, FOCUS, Filters(), _scored(), 4000.0).set_index("group")
+    bags = al.loc["Bags"]
+    assert bags["M_ext"] == pytest.approx(1.6) and bags["gap"] == pytest.approx(1.6)
+    assert bags["m_ext_rel"] == pytest.approx(1.0)
+    assert not al["flagged"].any()
+    assert "holiday tide" in bags["reason"]
+    # With no other category to compare against, the benchmark is skipped (NaN), not failed.
+    solo = phase2.trending_alerts(trends[trends["keyword"] != "notebook"], item, dim, km, BASE, FOCUS, Filters(),
+                                  _scored(), 4000.0).set_index("group")
+    assert np.isnan(solo.loc["Bags", "m_ext_rel"]) and bool(solo.loc["Bags", "flagged"])
 
 
 def test_trend_index_is_100_in_the_base_period():

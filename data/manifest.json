@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source": "bigquery+csv",
-  "generated_at": "2026-10-21T00:24:21+00:00",
+  "generated_at": "2026-10-21T07:17:14+00:00",
   "decisions": {
     "product_key": "name_key",
     "view_metric": "view_events",
@@ -86,20 +86,7 @@
       "rows": 1599,
       "sha256": "d1ac86d3685ec824ea88f8fa942b712a743f6f717830e705c38be4558e8f09ed",
       "built_from": [
-        "config/trends_keywords.csv",
-        "raw/trends/backpack.json",
-        "raw/trends/coffee-mug.json",
-        "raw/trends/gift-ideas.json",
-        "raw/trends/hoodie.json",
-        "raw/trends/mouse-pad.json",
-        "raw/trends/notebook.json",
-        "raw/trends/phone-accessories.json",
-        "raw/trends/stickers.json",
-        "raw/trends/stocking-stuffers.json",
-        "raw/trends/t-shirt.json",
-        "raw/trends/tote-bag.json",
-        "raw/trends/water-bottle.json",
-        "raw/trends/youtube-merch.json"
+        "pytrends"
       ]
     }
   },

@@ -83,6 +83,8 @@ def test_apparel_cyber_week_lift_is_significant_and_drinkware_is_not(syn):
     assert focus.at["Apparel", "p_value_vs_rest"] < 1e-4
     assert 0.4 < focus.at["Apparel", "lift_vs_rest"] < 1.3
     assert focus.at["Apparel", "lift"] > focus.at["Drinkware", "lift"]
+    # Planted 1.8x vs 1.0x; noise and the shared surge dilute it, so require only >= 1.3.
+    assert (1 + focus.at["Apparel", "lift"]) / (1 + focus.at["Drinkware", "lift"]) >= 1.3
     # Drinkware: planted 1.0x, i.e. it only rides the surge. Compare it with the other
     # un-boosted groups (with Apparel in "the rest", the rest is boosted).
     others = tuple(g for g in config.CATEGORY_GROUPS if g != "Apparel")
@@ -114,7 +116,7 @@ def test_campaign_score_borrows_strength(syn):
     lo = np.minimum(seen["cr_raw_w"], seen["prior_w"]) - 1e-12
     hi = np.maximum(seen["cr_raw_w"], seen["prior_w"]) + 1e-12
     assert ((seen["score"] >= lo) & (seen["score"] <= hi)).all()
-    unseen = cs[cs["views_w"] == 0]
+    unseen = cs[(cs["views_w"] == 0) & (cs["purchases_w"] == 0)]
     assert np.allclose(unseen["score"], unseen["prior_w"])
     # ... which steadies it: far less spread than the raw window rates.
     elig = seen[seen["eligible"]]

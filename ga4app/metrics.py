@@ -343,6 +343,32 @@ def pooled_rate(products: pd.DataFrame) -> float:
 # --------------------------------------------------------------------------- empirical Bayes
 
 
+def prior_strength_raw(products_full: pd.DataFrame, *, min_views: int = config.SHRINK_MIN_VIEWS) -> float:
+    """The unclamped method-of-moments ``m`` behind ``estimate_prior_strength``.
+
+    NaN when nothing can be estimated (fewer than two products, or a degenerate pooled rate);
+    ``inf`` when ``tau2 <= 0`` (no heterogeneity beyond binomial noise).
+    """
+    v = _num(products_full, "views")
+    p = _num(products_full, "purchases")
+    used = (v >= max(min_views, 1)) & (v > 0)
+    if used.sum() < 2:
+        return float("nan")
+    v_eff = np.maximum(v[used], p[used])
+    p = p[used]
+    mu_bar = float(p.sum() / v_eff.sum())
+    if not 0.0 < mu_bar < 1.0:
+        return float("nan")
+    mu_c = _group_prior(_categories(products_full)[used], v_eff, p, mu_bar)
+    r = p / v_eff
+    tau2 = (np.sum(v_eff * (r - mu_c) ** 2) - np.sum(mu_c * (1.0 - mu_c))) / v_eff.sum()
+    if not np.isfinite(tau2):
+        return float("nan")
+    if tau2 <= 0:
+        return float("inf")
+    return float(mu_bar * (1.0 - mu_bar) / tau2 - 1.0)
+
+
 def estimate_prior_strength(
     products_full: pd.DataFrame,
     *,
@@ -356,27 +382,20 @@ def estimate_prior_strength(
     when ``tau2 <= 0`` (no heterogeneity beyond binomial noise) or nothing can be estimated.
     """
     lo, hi = float(bounds[0]), float(bounds[1])
-    v = _num(products_full, "views")
-    p = _num(products_full, "purchases")
-    used = (v >= max(min_views, 1)) & (v > 0)
-    if used.sum() < 2:
+    raw = prior_strength_raw(products_full, min_views=min_views)
+    if not np.isfinite(raw):
         return hi
-    v_eff = np.maximum(v[used], p[used])
-    p = p[used]
-    mu_bar = float(p.sum() / v_eff.sum())
-    if not 0.0 < mu_bar < 1.0:
-        return hi
-    mu_c = _group_prior(_categories(products_full)[used], v_eff, p, mu_bar)
-    r = p / v_eff
-    tau2 = (np.sum(v_eff * (r - mu_c) ** 2) - np.sum(mu_c * (1.0 - mu_c))) / v_eff.sum()
-    if not np.isfinite(tau2) or tau2 <= 0:
-        return hi
-    return float(np.clip(mu_bar * (1.0 - mu_bar) / tau2 - 1.0, lo, hi))
+    return float(np.clip(raw, lo, hi))
 
 
 def season_prior_strength(item_daily: pd.DataFrame, product_dim: pd.DataFrame | None) -> float:
     """``estimate_prior_strength`` over the whole snapshot (full season, all devices and categories)."""
     return estimate_prior_strength(product_table(item_daily, product_dim))
+
+
+def season_prior_strength_raw(item_daily: pd.DataFrame, product_dim: pd.DataFrame | None) -> float:
+    """``prior_strength_raw`` over the whole snapshot (the value before the ``SHRINK_M_BOUNDS`` clamp)."""
+    return prior_strength_raw(product_table(item_daily, product_dim))
 
 
 def shrink(products: pd.DataFrame, m: float, *, interval: float = config.CONF_INTERVAL) -> pd.DataFrame:

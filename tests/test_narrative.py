@@ -224,6 +224,7 @@ def test_rule_based_verdict_format_and_citations(payload):
     assert cited <= narrative.payload_codes(payload)
     assert {"G1", "W1", "G3", "X1"} <= cited
     assert "Cannibalization" in text and "Outside signal" in text  # flags present -> mentioned
+    assert "over the full season" in text
     assert re.search(r"(?<!\\)\$", text) is None  # already md_safe
     assert "- Device lean: Google Hoodie Navy [W1] converts best on mobile;" in text
     assert "desktop" not in text  # X1's lean is not mentioned: it is being retired
@@ -244,7 +245,7 @@ def test_rule_based_verdict_without_flags_has_feature_bullets():
     text = narrative.rule_based_verdict(payload)
     bullets = [line for line in text.splitlines() if line.startswith("- ")]
     assert len(bullets) == 3
-    assert "extra purchases per 1,000 extra views" in bullets[0]
+    assert "extra purchases per 1,000 extra views if new viewers convert like current ones" in bullets[0]
     assert "already earns its traffic" in bullets[1] and "\\$12,500 revenue" in bullets[1]
     assert "Cannibalization" not in text and "Outside signal" not in text and "Device lean" not in text
 

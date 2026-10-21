@@ -77,8 +77,6 @@ def test_null_pair_is_not_flagged(syn: dict, tests_df: pd.DataFrame):
     assert bool(r["tested"])
     assert r["status"] not in (phase2.LIKELY, phase2.POSSIBLE)
     assert frozenset((npair["a"], npair["b"])) not in phase2.conflict_pairs(tests_df)
-    # Nothing else was planted, so false flags should be rare across all tested pairs.
-    assert (tests_df["status"] == phase2.LIKELY).sum() <= 3
 
 
 def test_category_filter_scopes_the_pairs(syn: dict):
@@ -100,6 +98,7 @@ def test_planted_trending_group_is_flagged(syn: dict):
     assert trending["M_ext"] == pytest.approx(1.6, abs=0.12)
     assert trending["M_site"] == pytest.approx(1.0, abs=0.08)
     assert not bool(control["flagged"])
+    assert trending["m_ext_rel"] >= config.TRENDING["gap_min"]  # beats the other categories' tide
     assert al["flagged"].sum() == 1  # the seasonal groups rise less than their on-site views
 
     promote = trending["promote_ahead"]

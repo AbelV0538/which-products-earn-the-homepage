@@ -60,10 +60,21 @@ SERIES = config.SCATTER_CATEGORICAL
 
 BUBBLE_MAX_PX = 34  # diameter of the largest bubble
 BUBBLE_MIN_PX = 8
-Y_CLIP_QUANTILE = 0.99
+Y_CLIP_QUANTILE = 0.95
+Y_HEADROOM = 1.18  # y range top / clip value: room for overflow markers below the corner badges
 Y_CLIP_SLACK = 1.15  # clip only when the max is this far above the quantile (small samples)
 LABEL_TOP_CODES = 3  # direct labels for W1-W3, G1-G3, X1-X3
-SHADE_OPACITY = 0.18
+SHADE_OPACITY = 0.22
+# Two-window bands: light lavender for the base, a stronger tint for the focus.
+SHADE_PAIR = (config.PERIOD_COLORS[0], config.PERIOD_COLORS[1])
+WHITE = "#FFFFFF"
+_SHORT_LABEL = {
+    "full": "Full season", "baseline": "Baseline", "cyber_week": "Cyber Week", "black_friday": "BF weekend",
+    "cyber_monday": "Cyber Mon", "december": "Dec push", "post_cutoff": "After cutoff", "january": "January",
+    "january_4wk": "Jan baseline",
+}
+LOG_TICKS = ((100, "100"), (300, "300"), (1_000, "1k"), (3_000, "3k"), (10_000, "10k"), (30_000, "30k"),
+             (100_000, "100k"), (300_000, "300k"), (1_000_000, "1M"))
 QUADRANT_TINT_OPACITY = 0.07
 RR_CLIP = (0.05, 20.0)
 
@@ -105,8 +116,8 @@ def _axis_style() -> dict[str, Any]:
 TEMPLATE = go.layout.Template(
     layout={
         "font": {"family": FONT_FAMILY, "size": 13, "color": INK},
-        "paper_bgcolor": SURFACE,
-        "plot_bgcolor": SURFACE,
+        "paper_bgcolor": WHITE,
+        "plot_bgcolor": WHITE,
         "colorway": list(SERIES),
         "margin": {"l": 56, "r": 24, "t": 40, "b": 48},
         "hoverlabel": {
@@ -136,6 +147,8 @@ TEMPLATE = go.layout.Template(
 
 def apply_template(fig: go.Figure, *, height: int | None = None, **layout: Any) -> go.Figure:
     """Apply the app template (plus optional layout overrides) and return ``fig``."""
+    # Backgrounds go on the layout too: the template alone is not always honoured by the renderer.
+    layout = {"plot_bgcolor": WHITE, "paper_bgcolor": WHITE, **layout}
     fig.update_layout(template=TEMPLATE, **({"height": height} if height else {}), **layout)
     return fig
 
@@ -247,7 +260,8 @@ def _ordinal(n: int, colors: Sequence[str] = config.PERIOD_COLORS) -> list[str]:
 def _shade(fig: go.Figure, periods: Any, *, row: Any = None, col: Any = None, label: bool = True) -> None:
     """Low-opacity bands for comparison windows (half a day of padding so daily points sit inside)."""
     plist = _periods(periods)
-    for p, colour in zip(plist, _ordinal(len(plist))):
+    colours = list(SHADE_PAIR) if len(plist) == 2 else _ordinal(len(plist))
+    for i, (p, colour) in enumerate(zip(plist, colours)):
         kw: dict[str, Any] = {
             "x0": (pd.Timestamp(p.start) - pd.Timedelta(hours=12)).isoformat(),
             "x1": (pd.Timestamp(p.end) + pd.Timedelta(hours=12)).isoformat(),
@@ -258,10 +272,12 @@ def _shade(fig: go.Figure, periods: Any, *, row: Any = None, col: Any = None, la
         }
         if label:
             kw.update(
-                annotation_text=_esc(p.label),
+                annotation_text=_esc(_SHORT_LABEL.get(p.key, p.label)),
                 annotation_position="top left",
                 annotation_font_size=11,
                 annotation_font_color=INK_2,
+                # Stagger heights so labels of adjacent windows never collide.
+                annotation={"name": f"band:{p.key}", "yshift": -16 * i, "bgcolor": WHITE_BOX},
             )
         if row is not None:
             kw.update(row=row, col=col)
@@ -379,7 +395,7 @@ def _top_code(code: str, top: int = LABEL_TOP_CODES) -> bool:
 
 
 def _y_cap(values: np.ndarray, floor: float) -> float:
-    """Top of the y range: the 99th percentile when an outlier sits well above it, else the max."""
+    """Clip value for y: the 95th percentile when an outlier sits well above it, else the max."""
     vmax = float(np.nanmax(values))
     cap = float(np.nanquantile(values, Y_CLIP_QUANTILE))
     if not vmax > cap * Y_CLIP_SLACK:
@@ -443,7 +459,7 @@ def quadrant_scatter(
     cap = _y_cap(yv, tc)
     over = yv > cap
     y_plot = np.minimum(yv, cap)
-    y_range = [-0.05 * cap, cap * 1.08]
+    y_range = [-0.05 * cap, cap * Y_HEADROOM]
     lo, hi = math.log10(views.min()), math.log10(views.max())
     lo, hi = min(lo, math.log10(tv)), max(hi, math.log10(tv))
     pad = max(0.12, 0.06 * (hi - lo))
@@ -565,11 +581,11 @@ def quadrant_scatter(
     rule = f" ({th.views_rule})" if named_rule else ""
     fig.add_annotation(
         name="threshold:views", text=f"High-traffic cutoff{rule}: {tv:,.0f} views", xref="x", yref="paper",
-        x=math.log10(tv), y=0, xanchor="left", yanchor="bottom", xshift=4, yshift=28, bgcolor=WHITE_BOX,
+        x=math.log10(tv), y=1.0, xanchor="center", yanchor="bottom", yshift=2,
     )
     fig.add_annotation(
-        name="threshold:conversion", text=f"Average: {_pct(tc)}", xref="paper", yref="y", x=1, y=tc,
-        xanchor="right", yanchor="bottom", xshift=-4, yshift=2, bgcolor=WHITE_BOX,
+        name="threshold:conversion", text=f"Average<br>{_pct(tc)}", xref="paper", yref="y", x=1.0, y=tc,
+        xanchor="left", yanchor="middle", xshift=6, align="left",
     )
     if over.any():
         k = int(over.sum())
@@ -580,8 +596,15 @@ def quadrant_scatter(
         )
 
     y_title = "Purchases per product view" + (" (adjusted)" if y == "cr_adj" else "")
-    apply_template(fig, height=height, showlegend=len(series) >= 2, legend={"itemsizing": "constant"}, margin={"t": 48})
-    fig.update_xaxes(type="log", range=x_range, title_text="Product views (log scale)")
+    apply_template(
+        fig, height=height, showlegend=len(series) >= 2, legend={"itemsizing": "constant", "y": 1.09},
+        margin={"t": 84, "r": 84},
+    )
+    ticks = [(v, t) for v, t in LOG_TICKS if x_range[0] <= math.log10(v) <= x_range[1]]
+    fig.update_xaxes(
+        type="log", range=x_range, title_text="Product views (log scale)",
+        tickvals=[v for v, _ in ticks], ticktext=[t for _, t in ticks], minor={"showgrid": False},
+    )
     fig.update_yaxes(range=y_range, tickformat=".2~%", title_text=y_title)
     return fig
 
@@ -800,10 +823,12 @@ def device_heatmap(
     max_label: int = 38,
     height: int | None = None,
 ) -> go.Figure:
-    """Products (rows, best overall ``cr_adj`` first) x devices, coloured by ``log2(index)``.
+    """Products (rows, best overall ``cr_adj`` first) x devices.
 
-    Takes ``metrics.device_matrix`` and optional ``metrics.device_lean`` output. Colour is the
-    adjusted index clipped to +-1 (coral = under-indexes, navy = over-indexes); cell text is
+    Takes ``metrics.device_matrix`` and optional ``metrics.device_lean`` output. Colour answers
+    "does it differ by device?": ``log2((cr_adj_d / device_rate) / (cr_adj / site_rate))``, the
+    product's device index relative to its own all-device index, clipped to +-1 (gray = as usual,
+    navy = over-performs on this device, coral = under-performs); cell text is
     ``text_col`` as a percentage; the low-volume tablet column is faded; the lean is listed on
     the right.
     """
@@ -836,9 +861,22 @@ def device_heatmap(
 
     index, views, purch = grid("index"), grid("views"), grid("purchases")
     raw, adj, rate = grid("cr_raw"), grid("cr_adj_d"), grid("device_rate")
+    v_all, p_all = np.nan_to_num(_num(df, "views", 0.0)), np.nan_to_num(_num(df, "purchases", 0.0))
+    site_rate = float(p_all.sum() / v_all.sum()) if v_all.sum() > 0 else np.nan
     with np.errstate(divide="ignore", invalid="ignore"):
-        z = grid("log2_index")
-        z = np.clip(np.where(np.isfinite(z), z, np.log2(index)), -1.0, 1.0)
+        # Device index: the product's adjusted device rate over the device average.
+        dev_tot = pd.DataFrame({"d": df["_d"], "v": v_all, "p": p_all}).groupby("d")[["v", "p"]].sum()
+        dev_rate = (dev_tot["p"] / dev_tot["v"]).where(dev_tot["v"] > 0).reindex(devices).to_numpy(dtype=float)
+        dev_index = np.where(np.isfinite(index), index, adj / rate)
+        dev_index = np.where(np.isfinite(dev_index), dev_index, raw / dev_rate[None, :])
+        # The product's usual (all-device) index: cr_adj over the site rate, else pooled counts.
+        p_bar = _num(df, "p_bar")
+        p_bar = float(np.nanmedian(p_bar)) if np.isfinite(p_bar).any() else site_rate
+        usual = (overall.reindex(order) / p_bar).to_numpy(dtype=float)
+        usual = np.where(np.isfinite(usual), usual, (pooled.reindex(order) / site_rate).to_numpy(dtype=float))
+        rel = dev_index / usual[:, None]
+        rel = np.where(rel > 0, rel, np.nan)
+        z = np.clip(np.log2(rel), -1.0, 1.0)
     shown = grid(text_col)
     name_of = dict(zip(df["_k"], _txt(df, "item_name", "")))
     names = [_short(name_of.get(k) or k, max_label) for k in order]
@@ -846,21 +884,22 @@ def device_heatmap(
     hover = np.empty((n, len(devices)), dtype=object)
     for i in range(n):
         for j, dev in enumerate(devices):
-            lines = [f"<b>{_esc(names[i])}</b>", f"{_esc(dev)}: {_pct(raw[i, j])} raw"]
+            lines = [f"<b>{_esc(names[i])}</b> · {_esc(dev)}"]
             if _finite(views[i, j]):
-                lines[-1] += f" ({np.nan_to_num(purch[i, j]):,.0f} purchases / {views[i, j]:,.0f} views)"
-            lines.append(f"Adjusted: {_pct(adj[i, j])} · device average {_pct(rate[i, j])}")
-            lines.append(f"Index: {index[i, j]:.2f}× the device average" if _finite(index[i, j]) else "Index: –")
+                lines.append(f"{views[i, j]:,.0f} views · {np.nan_to_num(purch[i, j]):,.0f} purchases")
+            lines.append(f"Device conversion: {_pct(raw[i, j])}")
+            lines.append(f"{rel[i, j]:.2f}× vs its usual" if _finite(rel[i, j]) else "vs its usual: –")
             hover[i, j] = "<br>".join(lines)
 
     fig = go.Figure()
     colorbar = {
         "orientation": "h", "x": 0.5, "xanchor": "center", "yref": "container", "y": 0, "yanchor": "bottom",
         "ypad": 8, "len": 0.5, "thickness": 10, "outlinewidth": 0,
-        "tickvals": [-1, -0.5, 0, 0.5, 1], "ticktext": ["≤0.5×", "0.7×", "1×", "1.4×", "≥2×"],
+        "tickvals": [-1, -0.5, 0, 0.5, 1], "ticktext": ["0.5×", "0.7×", "1×", "1.4×", "2×"],
         "tickfont": {"color": MUTED, "size": 11},
-        "title": {"text": "Conversion index vs the device average", "side": "top", "font": {"color": INK_2, "size": 11}},
+        "title": {"text": "Device vs the product's usual (×)", "side": "top", "font": {"color": INK_2, "size": 11}},
     }
+    # Numeric x positions: one heatmap column per device, nothing else.
     parts = [[j for j, d in enumerate(devices) if d != "tablet"], [j for j, d in enumerate(devices) if d == "tablet"]]
     first = True
     for cols_idx, faded in zip(parts, (False, True)):
@@ -868,7 +907,7 @@ def device_heatmap(
             continue
         fig.add_trace(
             go.Heatmap(
-                z=z[:, cols_idx], x=[devices[j] for j in cols_idx], y=list(range(n)),
+                z=z[:, cols_idx], x=cols_idx, y=list(range(n)),
                 text=hover[:, cols_idx].tolist(), hovertemplate="%{text}<extra></extra>",
                 colorscale=_DIVERGING_SCALE, zmin=-1, zmax=1, xgap=2, ygap=2,
                 opacity=0.5 if faded else 1.0, showscale=first, colorbar=colorbar if first else None,
@@ -883,7 +922,7 @@ def device_heatmap(
             else:
                 colour = SURFACE if _finite(z[i, j]) and z[i, j] >= 0.55 else INK
             fig.add_annotation(
-                text=_pct(shown[i, j]), x=dev, y=i, xref="x", yref="y", font={"size": 11, "color": colour}
+                text=_pct(shown[i, j]), x=j, y=i, xref="x", yref="y", font={"size": 11, "color": colour}
             )
 
     has_lean = _has(lean) and {"product_key", "lean"} <= set(lean.columns)
@@ -908,8 +947,8 @@ def device_heatmap(
         margin={"t": 64, "b": 84, "r": 170 if has_lean else 24},
     )
     _no_grid(fig)
-    fig.update_xaxes(side="top", categoryorder="array", categoryarray=devices, tickvals=devices, ticktext=ticktext,
-                     tickfont={"color": INK_2})
+    fig.update_xaxes(side="top", type="linear", range=[-0.5, len(devices) - 0.5], tickvals=list(range(len(devices))),
+                     ticktext=ticktext, tickfont={"color": INK_2})
     fig.update_yaxes(tickvals=list(range(n)), ticktext=[_esc(s) for s in names], autorange="reversed",
                      tickfont={"color": INK_2})
     return fig

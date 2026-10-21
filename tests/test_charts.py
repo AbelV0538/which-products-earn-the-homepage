@@ -286,7 +286,7 @@ def test_scatter_json_contract():
     assert {re.sub(r"</?b>", "", a["text"]) for a in badges} == {s["badge"] for s in config.QUADRANT_STYLE.values()}
     assert all(a["font"]["color"] == config.PALETTE["ink"] and a["font"]["size"] == 11 for a in badges)
     labels = " ".join(a["text"] for a in lay["annotations"])
-    assert "High-traffic cutoff: 1,000 views" in labels and "Average: 0.50%" in labels
+    assert "High-traffic cutoff: 1,000 views" in labels and "Average<br>0.50%" in labels
     eligible_keys = set(products.loc[products["eligible"], "product_key"])
     plotted = [row for trace in fig.data for row in trace.customdata]
     assert {row[0] for row in plotted} == eligible_keys  # ineligible products are left out
@@ -406,15 +406,66 @@ def test_heatmap_z_is_clipped_and_rows_ordered():
         assert z.min() == -1.0 and z.max() == 1.0
     names = list(fig.layout.yaxis.ticktext)
     assert names == ["Alpha Tee", "Gamma Bag", "Beta Mug", "Delta Pen"]  # overall cr_adj, best first
-    tablet = next(t for t in fig.data if list(t.x) == ["tablet"])
+    tablet = next(t for t in fig.data if list(t.x) == [config.DEVICES.index("tablet")])
     assert tablet.opacity < 1 and tablet.showscale is False
-    main = next(t for t in fig.data if "desktop" in t.x)
+    main = next(t for t in fig.data if 0 in list(t.x))
     assert main.colorscale[0][1] == config.DIVERGING[0] and main.colorscale[-1][1] == config.DIVERGING[2]
     assert main.zmin == -1 and main.zmax == 1
     leans = [a.text for a in fig.layout.annotations if a.name == "lean"]
     assert "<b>Desktop-first</b>" in leans and "<b>Mobile-first</b>" in leans
     cells = [a.text for a in fig.layout.annotations if a.xref == "x"]
     assert "4.80%" in cells  # alpha tee desktop: 0.006 * 8
+
+
+def test_heatmap_colour_is_device_vs_the_products_usual():
+    m = _device_matrix()
+    # gamma bag: overall cr_adj 0.007 / p_bar 0.005 = 1.4; give mobile the same index.
+    sel = (m["product_key"] == "gamma bag") & (m["device"] == "mobile")
+    m.loc[sel, "index"] = 1.4
+    fig = charts.device_heatmap(m, _lean())
+    names = list(fig.layout.yaxis.ticktext)
+    row = names.index("Gamma Bag")
+    main = next(t for t in fig.data if 0 in list(t.x))
+    col = list(main.x).index(config.DEVICES.index("mobile"))
+    assert np.asarray(main.z, dtype=float)[row, col] == pytest.approx(0.0)
+    hover = main.text[row][col]
+    assert "vs its usual" in hover and "views" in hover and "purchases" in hover
+    assert fig.data[0].colorbar.title.text == "Device vs the product's usual (×)"
+
+
+def test_heatmap_has_one_column_per_device():
+    fig = charts.device_heatmap(_device_matrix(), _lean())
+    xs = [x for t in fig.data for x in t.x]
+    assert sorted(xs) == list(range(len(config.DEVICES)))
+    assert list(fig.layout.xaxis.range) == [-0.5, len(config.DEVICES) - 0.5]
+    assert all(a.xref == "paper" for a in fig.layout.annotations if a.name == "lean")
+
+
+def test_scatter_clips_at_the_95th_percentile_with_headroom():
+    products = _products()
+    fig = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP)
+    elig = products[products["eligible"].astype(bool) & (products["views"] > 0)]
+    cap = float(np.nanquantile(elig["cr_raw"].astype(float), 0.95))
+    assert fig.layout.yaxis.range[1] == pytest.approx(cap * charts.Y_HEADROOM)
+    ys = [y for t in fig.data for y in t.y]
+    assert max(ys) == pytest.approx(cap)
+
+
+def test_scatter_threshold_labels_sit_outside_the_plot():
+    fig = charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP)
+    ann = {a.name: a for a in fig.layout.annotations}
+    views, conv = ann["threshold:views"], ann["threshold:conversion"]
+    assert views.yref == "paper" and views.y >= 1 and views.yanchor == "bottom"
+    assert conv.xref == "paper" and conv.x >= 1 and conv.xanchor == "left"
+    assert fig.layout.margin.r >= 60
+    assert set(fig.layout.xaxis.ticktext) <= {"100", "300", "1k", "3k", "10k", "30k", "100k", "300k", "1M"}
+
+
+def test_band_labels_are_short_and_staggered():
+    fig = charts.daily_conversion(_daily(), ["cyber_week", "december"])
+    bands = [a for a in fig.layout.annotations if (a.name or "").startswith("band:")]
+    assert [a.text for a in bands] == ["Cyber Week", "Dec push"]
+    assert bands[0].yshift != bands[1].yshift
 
 
 def test_period_bars_lift_labels_only_when_significant():
@@ -436,7 +487,7 @@ def test_daily_conversion_accepts_item_and_site_frames():
     assert item.data[0].y[0] == pytest.approx(day1["purchases"].sum() / day1["views"].sum())
     rects = [s for s in item.layout.shapes if s.type == "rect"]
     assert len(rects) == 2 and all(s.opacity < 0.3 for s in rects)
-    assert {a.text for a in item.layout.annotations} >= {p.label for p in PERIODS}
+    assert {a.text for a in item.layout.annotations} >= {charts._SHORT_LABEL[p.key] for p in PERIODS}
     site = charts.daily_conversion(_site_daily_long(), ["baseline"])
     assert site.data[0].y[0] == pytest.approx(10 / 2000)  # page_view rows are ignored
 

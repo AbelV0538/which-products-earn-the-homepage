@@ -109,6 +109,8 @@ PRESETS = ("full", "baseline", "cyber_week", "black_friday", "cyber_monday", "de
 # Holiday Shift comparisons: (base, focus); the first is the default.
 COMPARISONS = (
     ("baseline", "cyber_week"),
+    ("baseline", "black_friday"),
+    ("baseline", "cyber_monday"),
     ("baseline", "december"),
     ("cyber_week", "december"),
     ("january_4wk", "cyber_week"),
