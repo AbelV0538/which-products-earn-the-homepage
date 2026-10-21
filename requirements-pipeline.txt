@@ -1,0 +1,7 @@
+# Data pipeline: BigQuery export, local aggregates (DuckDB) and Google Trends.
+-r requirements.txt
+google-cloud-bigquery==3.46.2
+pydata-google-auth==1.9.1
+duckdb==1.5.6
+trendspy==0.1.6
+pytrends==4.9.2

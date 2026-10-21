@@ -1,0 +1,29 @@
+[project]
+name = "which-products-earn-the-homepage"
+version = "1.0.0"
+description = "Team 9 (ITCS 5122): which Google Merchandise Store products earn the holiday homepage slots, ranked by view-to-purchase efficiency."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "streamlit==1.66.0",
+    "plotly==7.1.0",
+    "pandas==3.0.2",
+    "numpy>=2.3,<2.5",
+    "pyarrow==26.0.0",
+    "scipy==1.16.3",
+    "httpx==0.28.1",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Flat layout with several top-level folders (views/, scripts/, tests/): ship only the package.
+packages = ["ga4app"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = ["app: Streamlit AppTest smoke tests"]
+addopts = "-ra"

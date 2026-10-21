@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "source": "bigquery+csv",
+  "generated_at": "2026-10-21T00:24:21+00:00",
+  "decisions": {
+    "product_key": "name_key",
+    "view_metric": "view_events",
+    "featured_signal": "views_share",
+    "stats": {
+      "purchase_id_coverage": 0.011372867587327376,
+      "purchase_name_coverage": 0.9317003061925889,
+      "row_share_multi_id_names": 0.9988714903846434,
+      "avg_items_per_view_item": 11.362210388794255
+    },
+    "notes": [
+      "R1: purchase rows matched to a viewed product by id 1.1%, by name 93.2%; names with several ids cover 99.9% of rows -> product_key = name_key.",
+      "R2: view_item events list ~11.4 different products (only 314 of 233,150 multi-item events repeat one product). Of 13,648 purchased products, 88% appeared in a view_item list earlier in the same session but only 29% of those at offset 0, so list position carries no 'main product' signal -> view_metric = view_events (a 'view' = the product appeared in a view_item event).",
+      "R4: 13% of view_promotion item rows carry a real item id -> featured_signal = views_share."
+    ]
+  },
+  "product_key": "name_key",
+  "view_metric": "view_events",
+  "name_aliases": {
+    "womens google striped ls": "google women's striped l/s",
+    "google f/c longsleeve charcoal": "google f/c long sleeve tee charcoal",
+    "google f/c longsleeve ash": "google f/c long sleeve tee ash",
+    "google unisex eco tee black": "google eco tee black",
+    "unisex google pocket tee grey": "google pocket tee grey",
+    "unisex google jumbo print tee white": "google jumbo print tee white",
+    "youth jumbo print tee white": "google youth jumbo print tee white",
+    "google summer19 crew grey": "google lightweight crew sweatshirt grey"
+  },
+  "category_colors": {
+    "Apparel": "#2a78d6",
+    "Drinkware": "#1baf7a",
+    "Bags": "#8A8F98",
+    "Office & Stationery": "#eb6834",
+    "Electronics & Accessories": "#8A8F98",
+    "Lifestyle & Gifts": "#8A8F98",
+    "Other": "#8A8F98"
+  },
+  "files": {
+    "item_daily": {
+      "file": "item_daily.parquet",
+      "rows": 73146,
+      "sha256": "1af6daa1ac5a5649dd8d7c585addab453db9c27a686a2c5e4c3150e4de294eab",
+      "built_from": [
+        "raw/bq_item_daily.parquet"
+      ]
+    },
+    "product_dim": {
+      "file": "product_dim.parquet",
+      "rows": 421,
+      "sha256": "d7f9ebe2739af8fc0ab7fc467d289d3a9edd51b86d9a9417c22e3a4d490c7226",
+      "built_from": [
+        "raw/bq_item_daily.parquet",
+        "raw/bq_item_attrs.parquet"
+      ]
+    },
+    "promo_daily": {
+      "file": "promo_daily.parquet",
+      "rows": 1244,
+      "sha256": "b2b2c9aec489ded3ad306c742da0f889e1f31786fc6df9d9491017c1d95f2c94",
+      "built_from": [
+        "raw/bq_promo_daily.parquet"
+      ]
+    },
+    "site_daily": {
+      "file": "site_daily.parquet",
+      "rows": 4143,
+      "sha256": "2eefd98a3be67046ff4e08b304e0daea2b90cd9bdd30c7b3ee41f391d76a394b",
+      "built_from": [
+        "ga4_events_export.csv"
+      ]
+    },
+    "site_funnel": {
+      "file": "site_funnel.parquet",
+      "rows": 276,
+      "sha256": "960c7a38299b9a61a65865f83257039b8fad945468acd7629cc072942c7272c4",
+      "built_from": [
+        "ga4_events_export.csv"
+      ]
+    },
+    "trends_daily": {
+      "file": "trends_daily.parquet",
+      "rows": 1599,
+      "sha256": "d1ac86d3685ec824ea88f8fa942b712a743f6f717830e705c38be4558e8f09ed",
+      "built_from": [
+        "config/trends_keywords.csv",
+        "raw/trends/backpack.json",
+        "raw/trends/coffee-mug.json",
+        "raw/trends/gift-ideas.json",
+        "raw/trends/hoodie.json",
+        "raw/trends/mouse-pad.json",
+        "raw/trends/notebook.json",
+        "raw/trends/phone-accessories.json",
+        "raw/trends/stickers.json",
+        "raw/trends/stocking-stuffers.json",
+        "raw/trends/t-shirt.json",
+        "raw/trends/tote-bag.json",
+        "raw/trends/water-bottle.json",
+        "raw/trends/youtube-merch.json"
+      ]
+    }
+  },
+  "periods": {
+    "full": {
+      "label": "Full season",
+      "start": "2020-11-01",
+      "end": "2021-01-31",
+      "days": 92
+    },
+    "baseline": {
+      "label": "Pre-holiday baseline",
+      "start": "2020-11-01",
+      "end": "2020-11-22",
+      "days": 22
+    },
+    "cyber_week": {
+      "label": "Cyber Week",
+      "start": "2020-11-23",
+      "end": "2020-11-30",
+      "days": 8
+    },
+    "black_friday": {
+      "label": "Black Friday weekend",
+      "start": "2020-11-26",
+      "end": "2020-11-29",
+      "days": 4
+    },
+    "cyber_monday": {
+      "label": "Cyber Monday",
+      "start": "2020-11-30",
+      "end": "2020-12-01",
+      "days": 2
+    },
+    "december": {
+      "label": "December gifting push",
+      "start": "2020-12-02",
+      "end": "2020-12-18",
+      "days": 17
+    },
+    "post_cutoff": {
+      "label": "After shipping cutoff",
+      "start": "2020-12-19",
+      "end": "2020-12-31",
+      "days": 13
+    },
+    "january": {
+      "label": "January",
+      "start": "2021-01-01",
+      "end": "2021-01-31",
+      "days": 31
+    },
+    "january_4wk": {
+      "label": "January 4-week baseline",
+      "start": "2021-01-04",
+      "end": "2021-01-31",
+      "days": 28
+    }
+  },
+  "placeholders": [
+    "",
+    "(not set)",
+    "<Other>",
+    "(data deleted)",
+    "Not available in demo dataset"
+  ],
+  "devices": {
+    "kept": [
+      "desktop",
+      "mobile",
+      "tablet"
+    ],
+    "unknown": []
+  },
+  "dropped_rows": {
+    "no_product_key": 46,
+    "no_product_key_views": 0,
+    "no_product_key_purchases": 0
+  },
+  "summary": {
+    "products": 421,
+    "products_viewed": 420,
+    "products_purchase_only": 0,
+    "views": 2655713,
+    "purchases": 14522,
+    "revenue_usd": 339412.0,
+    "pooled_conversion": 0.005468211361694581,
+    "view_share_by_group": {
+      "Apparel": 0.5294841724237521,
+      "Drinkware": 0.12264088777665358,
+      "Bags": 0.07483451713344025,
+      "Office & Stationery": 0.17024542938186468,
+      "Electronics & Accessories": 0.030769138080809184,
+      "Lifestyle & Gifts": 0.07202585520348019,
+      "Other": 0.0
+    },
+    "other_share": 0.0,
+    "dates": 92
+  }
+}

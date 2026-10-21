@@ -1,0 +1,16 @@
+# Streamlit settings for the app (keys checked against `streamlit config show`, Streamlit 1.66).
+# Colours come from the validated palette in ga4app/config.py (navy primary, lavender cards).
+
+[theme]
+base = "light"
+primaryColor = "#2F3B7D"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#ECEEF8"
+textColor = "#1F2433"
+font = "sans-serif"
+
+[theme.sidebar]
+backgroundColor = "#ECEEF8"
+
+[browser]
+gatherUsageStats = false
