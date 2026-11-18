@@ -14,3 +14,8 @@ backgroundColor = "#ECEEF8"
 
 [browser]
 gatherUsageStats = false
+
+[server]
+# Skip Streamlit's first-run "Email:" prompt, so `streamlit run app.py` starts straight away on a
+# machine that has never run Streamlit before.
+showEmailPrompt = false

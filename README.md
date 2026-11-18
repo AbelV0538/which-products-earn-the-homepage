@@ -4,7 +4,7 @@
 
 *ITCS 5122 Visual Analytics · Team 9 · Account D · Pitch 1. Client: Head of Merchandising.*
 
-> **Status:** working app with 7 pages, running on real GA4 data pulled live from BigQuery plus real Google Trends data. An optional AI verdict and [AI chart notes](#chart-notes) have both been run live against OpenRouter. There are 465 automated tests, all passing, run on every push by GitHub Actions. See [What is still missing](#what-is-still-missing).
+> **Status:** working app with 7 pages, running on real GA4 data pulled live from BigQuery plus real Google Trends data. An optional AI verdict and [AI chart notes](#chart-notes) have both been run live against OpenRouter. There are 465 automated tests, all passing, run on every push by GitHub Actions.
 
 ![Feature Picks page](docs/screenshots/feature_picks.png)
 
@@ -12,15 +12,49 @@
 
 ## Quick start
 
+The app runs entirely from the small data files committed in `data/` (about 5 MB). It does **not** need BigQuery, the 450 MB CSV or an API key.
+
+**You need Python 3.11, 3.12, 3.13 or 3.14** (3.13 recommended). Check with `python --version`, or on Windows `py -0`, which lists every installed version. **Python 3.15 does not work yet:** the pinned numpy, pandas and scipy have no ready-made packages for it, so pip would try to compile them and fail. Install 3.13 from [python.org](https://www.python.org/downloads/) alongside it if needed.
+
+**1. Get the code.**
+
 ```bash
-conda activate ITCS5122             # or any Python >= 3.11 environment
-pip install -r requirements.txt     # app runtime only
-streamlit run app.py
+git clone https://github.com/AbelV0538/which-products-earn-the-homepage.git
+cd which-products-earn-the-homepage
 ```
 
-The app runs entirely from the small snapshot files committed in `data/` (a few MB). It does **not** need BigQuery, the 450 MB CSV or an API key.
+Without git: on the GitHub page choose **Code → Download ZIP**, unzip it, and open a terminal in the unzipped folder.
 
-**Or open it in GitHub Codespaces.** The repo has a dev container (`.devcontainer/devcontainer.json`, Python 3.11). On GitHub choose **Code → Codespaces → Create codespace**: it installs `requirements.txt`, starts `streamlit run app.py` and opens the app on port 8501.
+**2. Create an environment and install the packages** (once; about 3 minutes).
+
+Windows (PowerShell or Command Prompt):
+
+```bat
+py -3.13 -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+```
+
+macOS or Linux:
+
+```bash
+python3.13 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+These commands call the environment's own Python, so there is nothing to activate. If `py -3.13` or `python3.13` is not found, use `python -m venv .venv` (Windows) or `python3 -m venv .venv` (macOS or Linux) instead, as long as that Python is 3.11–3.14. With conda instead: `conda create -n homepage python=3.13 -y`, then `conda activate homepage` and `pip install -r requirements.txt`.
+
+**3. Start the app.**
+
+```bash
+.venv\Scripts\python -m streamlit run app.py      # Windows
+.venv/bin/python -m streamlit run app.py          # macOS or Linux
+```
+
+The app opens in your browser at <http://localhost:8501> (if it doesn't, open that address yourself). **The first page takes about 20 seconds** while it loads the data and runs the cannibalization tests once; after that, pages switch in about a second. Stop the app with **Ctrl+C** in the terminal. To start it again later, run step 3 from the same folder.
+
+Tested on 2026-11-17 by following these steps from a fresh clone on Windows with Python 3.13; all 7 pages load. The packages also install from ready-made wheels on macOS (Apple silicon and Intel) and Linux, for Python 3.11 to 3.14.
+
+**Or skip the install: open it in GitHub Codespaces.** The repo has a dev container (`.devcontainer/devcontainer.json`, Python 3.11). On GitHub choose **Code → Codespaces → Create codespace**: it installs `requirements.txt`, starts the app and opens it on port 8501.
 
 **Optional AI verdict and chart notes.** With an [OpenRouter](https://openrouter.ai) key, the app turns the quadrant chart into a meeting-ready recommendation and writes [notes on three charts](#chart-notes):
 
@@ -244,18 +278,6 @@ docs/screenshots/      the README images
 .devcontainer/         GitHub Codespaces setup (installs requirements.txt, starts the app)
 .github/workflows/     CI: snapshot checks + the test suite on every push
 ```
-
-## What is still missing
-
-| Area | Status |
-|---|---|
-| Live AI verdict | ✅ Run on 2026-11-17 with Claude Haiku 5.5 (about $0.001, 6.5 s) and free models (8–15 s); no unknown product codes. ⏳ **Not yet run with the default Claude Opus 5.5**: the key used had too little credit for a 4,000-token request. |
-| Live AI chart notes | ✅ Run on 2026-11-17 on all three charts and in the running app; the prompt was tuned twice from what it showed. ⏳ **Claude Opus 5.5 has one data point** (the Feature Picks scatter: 4 of 4 notes kept, $0.021, 5.2 s) for the same credit reason; the rest of the paid figures are from Haiku 5.5. See [DESIGN.md 7b](docs/DESIGN.md). |
-| "Re-run proof query live" button (Data & Method) | ⏳ Only works on a machine with cached BigQuery credentials. It is disabled elsewhere and has not been clicked in the running app. |
-| Deployment | ⏳ Not deployed. The app is ready for Streamlit Community Cloud, since it runs from the committed snapshots, and the key can go in the Cloud app's secrets. Meanwhile anyone with access to the repo can run it in GitHub Codespaces (see [Quick start](#quick-start)). |
-| `TEAM9.pdf` (original pitch deck) | Intentionally not committed. |
-
-Shareable filter URLs, the inspector's per-device bars and a Slot Plan chart, listed here earlier, are now done.
 
 ## Known limitations
 
