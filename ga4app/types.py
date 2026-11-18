@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Literal
 
 from . import config
 
@@ -81,3 +82,36 @@ class Caveats:
             "The GA4 sample is obfuscated by Google; read relative patterns, not exact business totals.",
         ]
     )
+
+
+NoteKind = Literal["highlight", "caution"]
+
+
+@dataclass(frozen=True)
+class ChartNote:
+    """One numbered callout on a chart (``ga4app.annotate``). ``anchor`` is the ID of the bubble, bar
+    or cell it points at; ``n`` is the 1-based number shown on the chart and in the list under it.
+    Text is stored unescaped: charts escape it for Plotly, the page with ``narrative.md_safe``."""
+
+    anchor: str
+    kind: NoteKind
+    label: str
+    detail: str
+    n: int = 0
+
+
+@dataclass
+class NotesResult:
+    """The notes for one chart and where they came from.
+
+    ``source`` is ``"ai"`` (every note passed the anchor and number checks) or ``"rule"`` (the
+    deterministic notes, also the fallback). ``dropped`` lists ``(anchor, reason)`` for AI notes
+    that failed a check; ``error`` says why the AI notes are not shown (None when they are).
+    """
+
+    notes: list[ChartNote] = field(default_factory=list)
+    source: Literal["ai", "rule"] = "rule"
+    model: str | None = None
+    usage: dict | None = None
+    dropped: list[tuple[str, str]] = field(default_factory=list)
+    error: str | None = None

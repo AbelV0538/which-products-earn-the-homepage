@@ -26,16 +26,18 @@ from plotly.subplots import make_subplots
 
 from . import config
 from .config import Period
-from .types import Thresholds
+from .types import ChartNote, NotesResult, Thresholds
 
 __all__ = [
     "FONT_FAMILY",
+    "cell_anchor",
     "TEMPLATE",
     "apply_template",
     "daily_conversion",
     "device_bars",
     "device_heatmap",
     "empty_figure",
+    "heatmap_cells",
     "period_bars",
     "product_timeline",
     "quadrant_scatter",
@@ -86,6 +88,18 @@ LOW_VOLUME_MIN_VIEWS = 30  # tablet heatmap cells with fewer views show "–" in
 ITEM_GAP_COLOR = config.PALETTE["other"]
 QUADRANT_TINT_OPACITY = 0.07
 RR_CLIP = (0.05, 20.0)
+# Chart notes (ga4app.annotate): numbered callouts drawn by _draw_notes.
+CORAL = config.PALETTE["coral"]  # border of caution notes only (never text)
+NOTE_DX = 40  # px from the point to the note box, toward the plot's interior
+NOTE_DY = 30
+NOTE_BAR_DY = 40  # bar notes sit this far above the bar top, clear of its lift label
+BAR_HEADROOM = 1.18  # y range top / highest whisker on period_bars...
+NOTE_BAR_HEADROOM = 1.35  # ... and with notes, so the boxes stay inside the plot
+# Overlap check for note boxes. The plot's pixel width is not known (it follows the page), so it
+# is guessed; a wrong guess only stacks boxes that would not have touched.
+NOTE_BOX_PX = 24  # height of a note box plus a gap
+NOTE_PLOT_W_GUESS = 700  # px
+NOTE_BOX_W_GUESS = 0.32  # share of the plot width a note box may cover
 
 _SEQ_NAVY = [[0.0, config.PALETTE["lavender"]], [0.35, "#9AA6D9"], [0.7, "#6270BD"], [1.0, config.PALETTE["navy"]]]
 _DIVERGING_SCALE = [[0.0, config.DIVERGING[0]], [0.5, config.DIVERGING[1]], [1.0, config.DIVERGING[2]]]
@@ -366,6 +380,81 @@ def _no_grid(fig: go.Figure) -> None:
     fig.update_yaxes(showgrid=False, showline=False, ticks="")
 
 
+# --------------------------------------------------------------------------- chart notes
+
+
+def _note_list(notes: Any) -> tuple[list[ChartNote], str]:
+    """(notes, source) from a ``NotesResult``, or from a plain sequence of ``ChartNote`` (drawn as
+    rule-based). None or no notes gives ``([], "")``, and the figure is left unchanged."""
+    if notes is None:
+        return [], ""
+    items = notes.notes if isinstance(notes, NotesResult) else notes
+    source = notes.source if isinstance(notes, NotesResult) else "rule"
+    return [x for x in (items or ()) if isinstance(x, ChartNote)], str(source)
+
+
+def _note_number(note: ChartNote, k: int) -> int:
+    """The number shown for ``note``: its own ``n``, else its 1-based place in the list."""
+    return note.n if note.n > 0 else k + 1
+
+
+def _note_badge(note: ChartNote, k: int) -> str:
+    """``<b>2</b>``, or ``<b>2</b> <b>!</b>`` for a caution (coral is never used for text)."""
+    return f"<b>{_note_number(note, k)}</b>" + (" <b>!</b>" if note.kind == "caution" else "")
+
+
+def _note_box(note: ChartNote) -> dict[str, Any]:
+    """Box style shared by every note: white box, ink border, a coral border for cautions."""
+    caution = note.kind == "caution"
+    return {"bgcolor": WHITE_BOX, "bordercolor": CORAL if caution else INK, "borderwidth": 2 if caution else 1,
+            "borderpad": 3, "font": {"color": INK, "size": 11}}
+
+
+def _spread_notes(spots: Sequence[dict[str, float]], *, plot_h: float, flip: bool) -> None:
+    """Move note boxes off each other, in order: a box that would overlap an earlier one first tries
+    the other side of its point (when ``flip``), then steps further out by one box height.
+
+    Each spot has ``fx`` / ``fy`` (the point as a share of the plot, from the bottom left), ``ax``
+    and ``ay`` (pixel offsets of the box; ``ay`` is changed in place). A box must stay inside
+    ``plot_h`` pixels; boxes clash when their centres are closer than a box height vertically and
+    ``NOTE_BOX_W_GUESS`` of the width horizontally. A box with ``ax != 0`` grows away from its
+    point (``xanchor`` right of a left box, left of a right box), so its centre sits half a box
+    further out.
+    """
+    taken: list[tuple[float, float]] = []
+    for spot in spots:
+        y_px = (1.0 - spot["fy"]) * plot_h  # from the top of the plot
+        grow = math.copysign(NOTE_BOX_W_GUESS / 2, spot["ax"]) if spot["ax"] else 0.0
+        fx = spot["fx"] + spot["ax"] / NOTE_PLOT_W_GUESS + grow
+        base = spot["ay"]
+        step = NOTE_BOX_PX if base >= 0 else -NOTE_BOX_PX
+        tries = [base + k * step for k in range(4)]
+        if flip:
+            tries = [base, -base] + [t for k in range(1, 4) for t in (base + k * step, -base - k * step)]
+        choice = base
+        for ay in tries:
+            yc = y_px + ay
+            if not NOTE_BOX_PX / 2 <= yc <= plot_h - NOTE_BOX_PX / 2:
+                continue
+            if all(abs(fx - tx) >= NOTE_BOX_W_GUESS or abs(yc - ty) >= NOTE_BOX_PX for tx, ty in taken):
+                choice = ay
+                break
+        spot["ay"] = choice
+        taken.append((fx, y_px + choice))
+
+
+def _draw_notes(fig: go.Figure, placed: Sequence[tuple[ChartNote, int, Mapping[str, Any]]], *, source: str) -> None:
+    """One arrowed annotation per ``(note, k, position)``: ``<b>n</b> label`` in a box, the
+    detail on hover. ``position`` holds data coordinates (``x``, ``y``) and pixel offsets (``ax``,
+    ``ay``); ``k`` is the note's index in the list, for its number. Named ``note:<source>``."""
+    for note, k, pos in placed:
+        fig.add_annotation(
+            name=f"note:{source}", text=f"{_note_badge(note, k)} {_esc(note.label)}", hovertext=_esc(note.detail),
+            xref="x", yref="y", showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1.2, arrowcolor=INK,
+            align="left", **_note_box(note), **dict(pos),
+        )
+
+
 # --------------------------------------------------------------------------- Feature Picks
 
 
@@ -456,6 +545,7 @@ def quadrant_scatter(
     label_codes: bool = True,
     y_scale: str = "linear",
     height: int = 560,
+    notes: NotesResult | Sequence[ChartNote] | None = None,
 ) -> go.Figure:
     """The Feature Picks bubble scatter: log views (x) vs conversion (y), eligible products only.
 
@@ -467,6 +557,10 @@ def quadrant_scatter(
     ``y_scale="linear"`` clips outliers above the 95th percentile to the top edge (triangle-up).
     ``y_scale="log"`` shows every rate, so the top converters stay readable; rates more than
     ``LOG_Y_FLOOR_RATIO`` times below the average (including zero) sit on the floor (triangle-down).
+
+    ``notes`` (``annotate`` output) point at the bubbles whose code equals their anchor, at the
+    drawn position (a clipped bubble's arrow goes to the edge), with the box pushed toward the
+    plot's interior. Notes whose bubble is not drawn are skipped.
     """
     df = _eligible(products)
     if not df.empty:
@@ -528,8 +622,11 @@ def quadrant_scatter(
             "sizeref": 2.0 * smax / BUBBLE_MAX_PX**2,
             "sizemin": BUBBLE_MIN_PX / 2,  # plotly compares sizemin with the bubble radius
         }
+        # Plotly's area mode: radius = sqrt(size / 2 / sizeref), at least sizemin.
+        radius = np.maximum(np.sqrt(sizes / (2 * marker_size["sizeref"])), marker_size["sizemin"])
     else:
         marker_size = {"size": 12}
+        radius = np.full(n, 6.0)
 
     conf = _txt(df, "confidence", "")
     opacity = np.where(conf == "uncertain", 0.45, 0.9)
@@ -555,7 +652,7 @@ def quadrant_scatter(
         ]
         for i in range(n)
     ]
-    notes = []
+    hover_notes = []
     for i in range(n):
         lines = []
         conf_line = _CONFIDENCE_TEXT.get(str(conf[i]), "")
@@ -569,7 +666,7 @@ def quadrant_scatter(
             lines.append(f"▲ Off the chart: drawn at {_pct(cap)}, actual {_pct(yv[i])}")
         if under[i]:
             lines.append(f"▼ Below the axis: drawn at {_pct(floor, 3)}, actual {_pct(yv[i], 3)}")
-        notes.append("<br>".join(lines) or " ")
+        hover_notes.append("<br>".join(lines) or " ")
 
     fig = go.Figure()
     series = _colour_series(groups, color_map, highlight)
@@ -595,7 +692,7 @@ def quadrant_scatter(
                 textposition="top center",
                 textfont={"color": INK, "size": 11},
                 customdata=[custom[i] for i in idx],
-                hovertext=[notes[i] for i in idx],
+                hovertext=[hover_notes[i] for i in idx],
                 hovertemplate=_SCATTER_HOVER,
             )
         )
@@ -659,6 +756,29 @@ def quadrant_scatter(
             bgcolor=WHITE_BOX, font={"color": MUTED, "size": 11},
         )
 
+    note_list, source = _note_list(notes)
+    if note_list:
+        point_of = {str(c): i for i, c in enumerate(codes) if c}
+        y_lo, y_hi = (math.log10(y_range[0]), math.log10(y_range[1])) if log_y else (y_range[0], y_range[1])
+        placed, spots = [], []
+        for k, note in enumerate(note_list):
+            i = point_of.get(note.anchor)
+            if i is None:
+                continue
+            # Annotations on a log axis take log10 coordinates.
+            x = math.log10(views[i])
+            yy = math.log10(y_plot[i]) if log_y else float(y_plot[i])
+            fx, fy = (x - x_range[0]) / (x_range[1] - x_range[0]), (yy - y_lo) / (y_hi - y_lo)
+            spot = {"fx": fx, "fy": fy, "ax": -NOTE_DX if fx > 0.5 else NOTE_DX, "ay": NOTE_DY if fy > 2 / 3 else -NOTE_DY}
+            spots.append(spot)
+            placed.append((note, k, {"x": x, "y": yy, "standoff": float(radius[i]) + 2, "_spot": spot}))
+        _spread_notes(spots, plot_h=height - 84 - 64, flip=True)  # minus the top margin and the x axis
+        # Each box grows toward the plot's interior from its arrow, so none hangs over an edge.
+        placed = [(note, k, {**{a: b for a, b in pos.items() if a != "_spot"}, "ax": pos["_spot"]["ax"],
+                             "ay": pos["_spot"]["ay"], "xanchor": "right" if pos["_spot"]["ax"] < 0 else "left"})
+                  for note, k, pos in placed]
+        _draw_notes(fig, placed, source=source)
+
     y_title = "Purchases per product view" + (" (adjusted)" if y == "cr_adj" else "") + (" (log scale)" if log_y else "")
     apply_template(
         fig, height=height, showlegend=len(series) >= 2, legend={"itemsizing": "constant", "y": 1.09},
@@ -719,12 +839,15 @@ def product_timeline(daily_one: pd.DataFrame | None, periods: Any = None, *, hei
 
 
 def period_bars(
-    period_df: pd.DataFrame | None, *, colors: Sequence[str] = config.PERIOD_COLORS, height: int = 420
+    period_df: pd.DataFrame | None, *, colors: Sequence[str] = config.PERIOD_COLORS, height: int = 420,
+    notes: NotesResult | Sequence[ChartNote] | None = None,
 ) -> go.Figure:
     """Grouped bars of conversion per group (x) and window, with 95% intervals.
 
     Takes ``metrics.period_comparison`` output. Bars sit at explicit numeric positions so the
-    lift labels (only where ``p_value < 0.05``) land exactly above their bar.
+    lift labels (only where ``p_value < 0.05``) land exactly above their bar. ``notes`` anchored
+    ``"group·period"`` (``annotate.bar_anchor``) sit above that bar, clear of its lift label; the y
+    range grows to make room for them.
     """
     if not _has(period_df) or "period" not in period_df.columns:
         return empty_figure("No window comparison for this scope.", height=height)
@@ -748,6 +871,7 @@ def period_bars(
     width = slot * 0.84  # leaves a small surface gap between neighbouring bars
     fig = go.Figure()
     y_top = 0.0
+    bar_at: dict[str, tuple[float, float, bool]] = {}  # anchor -> (x, top, has a lift label)
     for i, (p, colour) in enumerate(zip(periods, _ordinal(n, colors))):
         sub = df[df["_p"] == p].drop_duplicates("_g").set_index("_g").reindex(groups)
         cr, lo, hi = _num(sub, "cr"), _num(sub, "ci_low"), _num(sub, "ci_high")
@@ -788,17 +912,35 @@ def period_bars(
         if p == base:
             continue
         for j in range(len(groups)):
-            if _finite(pval[j]) and pval[j] < 0.05 and _finite(lift[j]) and _finite(tops[j]):
+            labelled = _finite(pval[j]) and pval[j] < 0.05 and _finite(lift[j]) and _finite(tops[j])
+            if _finite(tops[j]):
+                bar_at[f"{groups[j]}{config.NOTE_ANCHOR_SEP}{p}"] = (float(x[j]), float(tops[j]), labelled)
+            if labelled:
                 fig.add_annotation(
                     name="lift", text=f"<b>{lift[j]:+.0%}</b>", x=x[j], y=tops[j], xref="x", yref="y",
                     yanchor="bottom", yshift=3, font={"color": INK, "size": 11},
                 )
+    note_list, source = _note_list(notes)
+    placed, spots = [], []
+    y_max = max(y_top, 1e-6) * NOTE_BAR_HEADROOM
+    for k, note in enumerate(note_list):
+        if note.anchor in bar_at:
+            bx, top, labelled = bar_at[note.anchor]
+            spot = {"fx": (bx + 0.5) / max(len(groups), 1), "fy": top / y_max, "ax": 0.0, "ay": float(-NOTE_BAR_DY)}
+            spots.append(spot)
+            # The arrow stops just above the lift label (about 17 px tall), or near a bare bar's top.
+            placed.append((note, k, {"x": bx, "y": top, "ax": 0, "standoff": 19 if labelled else 3, "_spot": spot}))
+    _spread_notes(spots, plot_h=height - 40 - 60, flip=False)  # boxes only stack upward, never onto the bars
+    placed = [(note, k, {**{a: b for a, b in pos.items() if a != "_spot"}, "ay": pos["_spot"]["ay"]})
+              for note, k, pos in placed]
+    _draw_notes(fig, placed, source=source)
     apply_template(fig, height=height, barmode="overlay", barcornerradius=4, showlegend=n >= 2, hovermode="closest")
     fig.update_xaxes(
         tickvals=list(range(len(groups))), ticktext=[_esc(g) for g in groups], range=[-0.5, len(groups) - 0.5],
         showgrid=False, ticks="",
     )
-    fig.update_yaxes(tickformat=".2~%", title_text="Purchases per product view", range=[0, max(y_top, 1e-6) * 1.18])
+    headroom = NOTE_BAR_HEADROOM if placed else BAR_HEADROOM
+    fig.update_yaxes(tickformat=".2~%", title_text="Purchases per product view", range=[0, max(y_top, 1e-6) * headroom])
     return fig
 
 
@@ -895,28 +1037,32 @@ def transition_matrix(
 # --------------------------------------------------------------------------- Device Split
 
 
-def device_heatmap(
-    matrix: pd.DataFrame | None,
-    lean: pd.DataFrame | None = None,
-    *,
-    text_col: str = "cr_raw",
-    max_label: int = 38,
-    height: int | None = None,
-) -> go.Figure:
-    """Products (rows, best overall ``cr_adj`` first) x devices.
+def cell_anchor(product: str, device: str) -> str:
+    """The anchor ID of one heatmap cell: ``"G1·mobile"`` (code), or ``"R3·mobile"`` (3rd row, uncoded)."""
+    return f"{product}{config.NOTE_ANCHOR_SEP}{device}"
 
-    Takes ``metrics.device_matrix`` and optional ``metrics.device_lean`` output. Colour answers
-    "does it differ by device?": ``log2((cr_adj_d / device_rate) / (cr_adj / site_rate))``, the
-    product's device index relative to its own all-device index, clipped to +-1 (gray = as usual,
-    navy = over-performs on this device, coral = under-performs); cell text is
-    ``text_col`` as a percentage; the low-volume tablet column is faded; the lean is listed on
-    the right.
+
+_CELL_COLUMNS = ("product_key", "item_name", "device", "row", "col", "views", "purchases", "cr_raw", "shown", "rel",
+                 "z", "sparse", "anchor")
+
+
+def heatmap_cells(
+    matrix: pd.DataFrame | None, *, text_col: str = "cr_raw", codes: Mapping[str, str] | None = None
+) -> pd.DataFrame:
+    """One row per drawn cell of ``device_heatmap``: the numbers the chart shows, so notes quote them.
+
+    Columns: ``product_key, item_name, device``, ``row`` / ``col`` (positions; rows ordered by overall
+    ``cr_adj``, best first), ``views, purchases, cr_raw``, ``shown`` (the cell text value,
+    ``text_col``), ``rel`` (device index over the product's usual index; the colour is
+    ``z = clip(log2(rel), -1, 1)``, NaN for sparse cells), ``sparse`` (tablet cells under
+    ``LOW_VOLUME_MIN_VIEWS`` views, drawn as "–") and ``anchor`` (``cell_anchor`` with the product's
+    code from ``codes``, else ``R<row number>``). Empty when ``matrix`` has no product/device columns.
     """
     dev_col = None
     if _has(matrix) and "product_key" in matrix.columns:
         dev_col = next((c for c in ("device", "device_category") if c in matrix.columns), None)
     if dev_col is None:
-        return empty_figure("Pick products to compare across devices.", height=height or 320)
+        return pd.DataFrame(columns=list(_CELL_COLUMNS))
     df = matrix.assign(_k=_txt(matrix, "product_key"), _d=_txt(matrix, dev_col))
     present = list(dict.fromkeys(df["_d"]))
     devices = [d for d in config.DEVICES if d in present] + sorted(d for d in present if d not in config.DEVICES)
@@ -965,7 +1111,57 @@ def device_heatmap(
     z = np.where(sparse, np.nan, z)
     shown = grid(text_col)
     name_of = dict(zip(df["_k"], _txt(df, "item_name", "")))
-    names = [_short(name_of.get(k) or k, max_label) for k in order]
+    code_of = {str(k): str(v) for k, v in (codes or {}).items() if isinstance(v, str) and v}
+    rows, cols = np.divmod(np.arange(n * len(devices)), len(devices))
+    return pd.DataFrame({
+        "product_key": [order[i] for i in rows],
+        "item_name": [name_of.get(order[i]) or order[i] for i in rows],
+        "device": [devices[j] for j in cols],
+        "row": rows, "col": cols,
+        "views": views.ravel(), "purchases": purch.ravel(), "cr_raw": raw.ravel(), "shown": shown.ravel(),
+        "rel": rel.ravel(), "z": z.ravel(), "sparse": sparse.ravel(),
+        "anchor": [cell_anchor(code_of.get(order[i]) or f"R{i + 1}", devices[j]) for i, j in zip(rows, cols)],
+    })
+
+
+def device_heatmap(
+    matrix: pd.DataFrame | None,
+    lean: pd.DataFrame | None = None,
+    *,
+    text_col: str = "cr_raw",
+    max_label: int = 38,
+    height: int | None = None,
+    notes: NotesResult | Sequence[ChartNote] | None = None,
+    codes: Mapping[str, str] | None = None,
+) -> go.Figure:
+    """Products (rows, best overall ``cr_adj`` first) x devices.
+
+    Takes ``metrics.device_matrix`` and optional ``metrics.device_lean`` output. Colour answers
+    "does it differ by device?": ``log2((cr_adj_d / device_rate) / (cr_adj / site_rate))``, the
+    product's device index relative to its own all-device index, clipped to +-1 (gray = as usual,
+    navy = over-performs on this device, coral = under-performs); cell text is
+    ``text_col`` as a percentage; the low-volume tablet column is faded; the lean is listed on
+    the right. The per-cell numbers come from ``heatmap_cells``.
+
+    ``notes`` anchored on a cell (``cell_anchor``, with the product codes in ``codes``) get a
+    rectangle around the cell and a numbered badge in its corner; their labels go in the list
+    under the chart, because the grid is too dense for them.
+    """
+    cells = heatmap_cells(matrix, text_col=text_col, codes=codes)
+    if cells.empty:
+        return empty_figure("Pick products to compare across devices.", height=height or 320)
+    devices = list(cells.drop_duplicates("col").sort_values("col")["device"])
+    order = list(cells.drop_duplicates("row").sort_values("row")["product_key"])
+    n, m = len(order), len(devices)
+
+    def wide(col: str) -> np.ndarray:
+        return cells.sort_values(["row", "col"])[col].to_numpy().reshape(n, m)
+
+    views, purch, raw = wide("views").astype(float), wide("purchases").astype(float), wide("cr_raw").astype(float)
+    rel, z, shown = wide("rel").astype(float), wide("z").astype(float), wide("shown").astype(float)
+    sparse = wide("sparse").astype(bool)
+    full_name = dict(zip(cells["product_key"], cells["item_name"]))
+    names = [_short(full_name[k], max_label) for k in order]
 
     hover = np.empty((n, len(devices)), dtype=object)
     for i in range(n):
@@ -1031,6 +1227,23 @@ def device_heatmap(
                     xref="paper", yref="y", x=1, y=i, xanchor="left", xshift=10,
                     font={"color": INK if call in _LEAN_STRONG else INK_2, "size": 11},
                 )
+    note_list, source = _note_list(notes)
+    cell_at = {a: (int(r), int(c)) for a, r, c in zip(cells["anchor"], cells["row"], cells["col"])}
+    for k, note in enumerate(note_list):
+        if note.anchor not in cell_at:
+            continue
+        i, j = cell_at[note.anchor]
+        box = _note_box(note)
+        fig.add_shape(
+            name=f"note:{source}", type="rect", xref="x", yref="y", x0=j - 0.47, x1=j + 0.47, y0=i - 0.45,
+            y1=i + 0.45, line={"color": box["bordercolor"], "width": 2}, fillcolor="rgba(0,0,0,0)", layer="above",
+        )
+        # Rows run top to bottom (reversed axis), so y = i - 0.5 is the cell's top edge.
+        fig.add_annotation(
+            name=f"note:{source}", text=_note_badge(note, k), hovertext=_esc(f"{note.label}: {note.detail}"),
+            xref="x", yref="y", x=j - 0.5, y=i - 0.5, xanchor="left", yanchor="top", xshift=6, yshift=-4,
+            **{**box, "borderpad": 2, "font": {"color": INK, "size": 11}},
+        )
     low_volume = "<br><span style='font-size:10px'>low volume</span>"
     ticktext = [_esc(d) + (low_volume if d == "tablet" else "") for d in devices]
     apply_template(

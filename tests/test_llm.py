@@ -290,6 +290,26 @@ def test_fake_mode_env_selects_fake_transport(monkeypatch):
     assert events[-1].model == llm.FAKE_MODEL
 
 
+def test_fake_transport_streams_the_responders_chunks():
+    seen = []
+
+    def respond(body: dict) -> list[str]:
+        seen.append(body)
+        return ['{"notes": ', "[]}"]
+
+    events = _run(llm.fake_transport(respond=respond))
+    assert [e.text for e in events if e.kind == "text"] == ['{"notes": ', "[]}"]
+    assert events[-1].kind == "done" and events[-1].usage == llm.FAKE_USAGE
+    assert seen and seen[0]["model"] and seen[0]["messages"]  # the request body reaches the responder
+    default = _run(llm.fake_transport())
+    assert tuple(e.text for e in default if e.kind == "text") == llm.FAKE_TEXT_CHUNKS
+
+
+def test_fake_transport_with_no_chunks_still_finishes():
+    events = _run(llm.fake_transport(respond=lambda body: []))
+    assert not [e for e in events if e.kind == "text"] and events[-1].kind == "done"
+
+
 def test_fake_transport_rejects_sampling_params():
     with httpx.Client(transport=llm.fake_transport()) as client:
         resp = client.post(config.OPENROUTER_URL, json={"model": "m", "temperature": 0.2})

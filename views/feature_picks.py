@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from ga4app import charts, config, data, narrative, state, ui
+from ga4app import annotate, charts, config, data, narrative, state, ui
 
 P = "fp_"
 SCATTER_KEY = f"{P}scatter"
@@ -80,10 +80,15 @@ def _inspect_point() -> None:
         st.session_state[state.INSPECT] = key
 
 
+# Products in a cannibalization conflict pair: a caution for the chart notes and a flag in the tables.
+conflict_keys = {k for pair in data.conflicts(snapshot) for k in pair}
+note_anchors = annotate.scatter_anchors(payload, products, conflict_keys)
+
 left, right = st.columns([2.3, 1])
 with left:
+    notes = ui.chart_notes_controls(note_anchors, key_prefix=P)
     fig = charts.quadrant_scatter(products, th, y=y_col, size=SIZE_OPTIONS.get(size_label or "Revenue", "revenue_usd"),
-                                  color_map=snapshot.category_colors, highlight=highlight, y_scale=y_scale)
+                                  color_map=snapshot.category_colors, highlight=highlight, y_scale=y_scale, notes=notes)
     cols = ["code", "product_key", "item_name", "category_group", "views", "purchases", "cr_raw", "cr_adj", "revenue_usd", "quadrant"]
     ui.chart_with_table(
         fig, eligible[cols], key=SCATTER_KEY, on_select=_inspect_point, file_name="feature_picks_quadrants.csv",
@@ -92,12 +97,13 @@ with left:
                  "Faded bubbles have too few views to be sure. "
                  + ("Both axes are log scale, so each gridline step is a multiple, not a fixed amount. " if y_scale == "log" else "")
                  + "Click a bubble to inspect it."),
+        alt_extra=ui.notes_alt(notes),
     )
+    ui.chart_notes_list(notes, note_anchors, key_prefix=P, inspect=True)
 with right:
     ui.product_inspector(snapshot, f, st.session_state.get(state.INSPECT))
 
 # Ranked tables.
-conflict_keys = {k for pair in data.conflicts(snapshot) for k in pair}
 all_lean = data.device_lean(snapshot, tuple(eligible["product_key"].astype(str)), f)
 lean_map = dict(zip(all_lean["product_key"].astype(str), all_lean["lean"].astype(str)))
 

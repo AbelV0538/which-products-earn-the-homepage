@@ -19,6 +19,7 @@ from .types import Filters
 DATES, PRESET, DEV, CAT, MINV = "dates", "preset", "dev", "cat", "minv"
 AI_MODEL, AI_CUSTOM, AI_KEY, AI_AUTO, AI_CACHE = "ai_model", "ai_custom_model", "ai_key", "ai_auto", "ai_cache"
 INSPECT = "inspect_key"
+NOTES_CACHE = "notes_cache"  # AI chart notes by annotate.cache_key (this session; ui also shares them)
 PINNED = "sp_pinned"  # products pinned to the slot plan (inspector button or the Slot Plan page)
 EXCLUDED = "sp_excluded"  # products kept out of the slot plan (e.g. out of stock)
 CUSTOM_MODEL = "Custom…"
@@ -52,6 +53,7 @@ def init_state() -> None:
     ss.setdefault(AI_MODEL, config.DEFAULT_MODEL)
     ss.setdefault(AI_AUTO, False)
     ss.setdefault(AI_CACHE, {})
+    ss.setdefault(NOTES_CACHE, {})
     ss.setdefault(INSPECT, None)
     ss.setdefault(PINNED, [])
     ss.setdefault(EXCLUDED, [])

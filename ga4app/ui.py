@@ -1,4 +1,5 @@
-"""Reusable page pieces: headers, KPI tiles, chart + data twins, the verdict card, the inspector."""
+"""Reusable page pieces: headers, KPI tiles, chart + data twins, the verdict card, chart notes,
+the inspector."""
 
 from __future__ import annotations
 
@@ -9,8 +10,8 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from . import charts, config, data, llm, narrative, state
-from .types import Caveats, Filters
+from . import annotate, charts, config, data, llm, narrative, state
+from .types import Caveats, Filters, NotesResult
 
 PLOTLY_CONFIG = {"displaylogo": False}
 QUESTIONS = {
@@ -22,6 +23,8 @@ QUESTIONS = {
     "Phase 2b": "Which categories are trending on Google ahead of our own traffic?",
 }
 COST_NOTE = "About \\$0.02–0.05 per verdict with Claude Opus 5.5; free models are rate-limited."
+NOTES_COST_NOTE = ("About \\$0.02 per chart with Claude Opus 5.5, one call; the notes are kept when only the "
+                   "display changes.")
 
 
 def esc(text: Any) -> str:
@@ -64,15 +67,17 @@ def _csv(df: pd.DataFrame) -> bytes:
 
 def chart_with_table(
     fig, df: pd.DataFrame | None, *, key: str, caption: str | None = None, on_select: Callable | None = None,
-    file_name: str | None = None,
+    file_name: str | None = None, alt_extra: str | None = None,
 ):
     """The Plotly chart plus a "Show data" expander with the same rows and a CSV download.
-    The caption doubles as the chart's accessible description."""
+    The caption doubles as the chart's accessible description; ``alt_extra`` (the chart notes)
+    joins that description without repeating in the visible caption."""
     kwargs: dict[str, Any] = {}
     if on_select is not None:
         kwargs = {"on_select": on_select, "selection_mode": "points"}
-    if caption:
-        kwargs["alt"] = caption
+    alt = " ".join(t for t in (caption, alt_extra) if t)
+    if alt:
+        kwargs["alt"] = alt
     event = st.plotly_chart(fig, theme=None, width="stretch", key=key, config=PLOTLY_CONFIG, **kwargs)
     if caption:
         st.caption(esc(caption))
@@ -168,6 +173,110 @@ def verdict_block(payload: dict, *, key_prefix: str) -> None:
         _shared_ai_cache()[ck] = entry
         body.markdown(narrative.md_safe(entry["text"]))
         box.caption(f"AI verdict · {esc(entry['model'])}")
+
+
+# --------------------------------------------------------------------------- chart notes
+
+
+@st.cache_resource
+def _shared_notes_cache() -> dict[str, NotesResult]:
+    """AI chart notes shared across sessions (outputs contain no secrets)."""
+    return {}
+
+
+def _notes_on(toggle_key: str) -> None:
+    st.session_state[toggle_key] = True
+
+
+def chart_notes_controls(
+    anchors: annotate.AnchorSet, rule_notes: NotesResult | None = None, *, key_prefix: str
+) -> NotesResult | None:
+    """Above a chart: the "Point out what matters" toggle (off by default) and "Write AI notes".
+
+    Returns the notes to draw, or None while the toggle is off: AI notes cached for these anchors
+    and this model when there are some, else ``rule_notes`` (default
+    ``annotate.rule_based_notes(anchors)``). The button (which also turns the toggle on) calls the
+    model once, under a spinner; only results whose notes passed the checks are cached, in the
+    session and across sessions, by ``annotate.cache_key``.
+    """
+    model, api_key, _source = state.ai_settings()
+    toggle_key = f"{key_prefix}notes_on"
+    c1, c2, c3 = st.columns([2.0, 1.3, 2.7], vertical_alignment="center")
+    c1.toggle("Point out what matters", key=toggle_key,
+              help="Numbered notes on the chart for the bubbles, bars or cells that matter most for the "
+                   "homepage decision. Every number in a note is checked against the data.")
+    clicked = c2.button("Write AI notes", key=f"{key_prefix}notes_ai", disabled=not model or not anchors.anchors,
+                        on_click=_notes_on, args=(toggle_key,), type="secondary")
+    c3.caption(NOTES_COST_NOTE + ("" if api_key or llm.fake_mode() else
+                                  " Add an OpenRouter key under **AI narrator** in the sidebar."))
+    if not st.session_state.get(toggle_key):
+        return None
+    cache = st.session_state.setdefault(state.NOTES_CACHE, {})
+    ck = annotate.cache_key(anchors, model or "-")
+    if clicked and model:
+        with st.spinner("Writing notes…"):
+            result = annotate.ai_notes(anchors, api_key=api_key, model=model)
+        if result.source == "ai":
+            cache[ck] = result
+            _shared_notes_cache()[ck] = result
+        return result
+    hit = cache.get(ck) or _shared_notes_cache().get(ck)
+    if hit is not None:
+        return hit
+    return rule_notes if rule_notes is not None else annotate.rule_based_notes(anchors)
+
+
+def _note_md(text: str) -> str:
+    """Note text for st.markdown: markdown controls and ``$`` escaped (notes may come from a model)."""
+    return narrative.md_safe(narrative._md_escape_inline(text))
+
+
+def notes_alt(result: NotesResult | None) -> str | None:
+    """The notes as one sentence list for a chart's accessible description."""
+    if result is None or not result.notes:
+        return None
+    return "Chart notes: " + " ".join(f"{n.n}. {n.label}: {n.detail}" for n in result.notes)
+
+
+def _inspect(key: str) -> None:
+    st.session_state[state.INSPECT] = key
+
+
+def chart_notes_list(
+    result: NotesResult | None, anchors: annotate.AnchorSet | None = None, *, key_prefix: str, inspect: bool = False
+) -> None:
+    """Under the chart: where the notes came from, any warning, and the numbered notes.
+    ``inspect=True`` adds an Inspect button to each product note (it sets ``state.INSPECT``)."""
+    if result is None:
+        return
+    if result.source == "ai":
+        st.caption(f"AI notes · {esc(result.model or 'model')} · every number checked against the data")
+    else:
+        st.caption("Rule-based notes from the numbers on this chart")
+    reasons = "; ".join(f"{a or 'a note'}: {r}" for a, r in result.dropped[:4])
+    more = f" (and {len(result.dropped) - 4} more)" if len(result.dropped) > 4 else ""
+    if result.error:
+        n = len(result.dropped)
+        dropped = f" {n} AI note{'s were' if n != 1 else ' was'} dropped: {reasons}{more}." if n else ""
+        st.warning(esc(f"AI notes not shown ({result.error}). Showing the rule-based notes.{dropped}"))
+    elif result.dropped:
+        n = len(result.dropped)
+        st.warning(esc(f"{n} AI note{'s were' if n != 1 else ' was'} dropped by the checks: {reasons}{more}."))
+    if not result.notes:
+        st.caption(esc(anchors.empty if anchors is not None else "Nothing on this chart to point out."))
+        return
+    keys = anchors.keys if anchors is not None else {}
+    for note in result.notes:
+        mark = " !" if note.kind == "caution" else ""
+        line = f"**{note.n}{mark}** {_note_md(note.label)}: {_note_md(note.detail)}"
+        key = keys.get(note.anchor) if inspect else None
+        if key:
+            text_col, button_col = st.columns([6, 1], vertical_alignment="center")
+            text_col.markdown(line)
+            button_col.button("Inspect", key=f"{key_prefix}note_inspect_{note.n}", on_click=_inspect, args=(key,),
+                              help="Show this product in the inspector.")
+        else:
+            st.markdown(line)
 
 
 # --------------------------------------------------------------------------- product inspector

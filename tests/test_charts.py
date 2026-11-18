@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 import pytest
 
 from ga4app import charts, config
-from ga4app.types import PRODUCT_COLUMNS, Thresholds
+from ga4app.types import PRODUCT_COLUMNS, ChartNote, NotesResult, Thresholds
 
 COLOR_MAP = {
     "Apparel": "#2a78d6",
@@ -249,6 +249,9 @@ def _all_figures() -> dict[str, go.Figure]:
         "trends": charts.trends_small_multiples(_trend_index(), PERIODS),
         "spike": charts.spike_share(_spikes(), "alpha tee", ["cyber_week"]),
         "scatter_log": charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP, y_scale="log"),
+        "scatter_notes": charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP, notes=_scatter_notes()),
+        "bars_notes": charts.period_bars(_period_df(), notes=[ChartNote("Apparel·cyber_week", "caution", "a", "b")]),
+        "heatmap_notes": charts.device_heatmap(_device_matrix(), _lean(), notes=[ChartNote("R2·mobile", "caution", "a", "b")]),
         "slots": charts.slot_candidates(_slot_scores(), ["k0", "k14"]),
         "device_bars": charts.device_bars(_device_matrix().query("product_key == 'alpha tee'")),
         "daily_gap": charts.daily_conversion(_season_daily(), PERIODS),
@@ -256,6 +259,11 @@ def _all_figures() -> dict[str, go.Figure]:
         "timeline": charts.product_timeline(_daily(), PERIODS),
         "empty": charts.empty_figure("nothing"),
     }
+
+
+def _scatter_notes() -> NotesResult:
+    return NotesResult([ChartNote("G1", "highlight", "Best hidden gem", "a", 1),
+                        ChartNote("X1", "caution", "Most purchases forgone", "b", 2)], source="rule")
 
 
 def _slot_scores(n: int = 15) -> pd.DataFrame:
@@ -731,3 +739,186 @@ def test_item_gap_band_only_when_a_series_stops_at_the_cut():
 def test_short_label():
     assert charts.short_label("december") == "Dec push" and charts.short_label("january_4wk") == "Jan baseline"
     assert charts.short_label("post_cutoff") == "After cutoff" and charts.short_label("nope") == "nope"
+
+
+# --------------------------------------------------------------------------- chart notes
+
+
+def _note_ann(fig: go.Figure, source: str = "rule") -> list:
+    return [a for a in fig.layout.annotations if a.name == f"note:{source}"]
+
+
+def _code_row(products: pd.DataFrame, code: str) -> pd.Series:
+    return products.loc[products["code"] == code].iloc[0]
+
+
+# Annotation names per figure before chart notes existed: notes=None must keep them.
+BASELINE_ANNOTATIONS = {
+    "scatter": {"badge:Winners": 1, "badge:Hidden gems": 1, "badge:Wasted exposure": 1, "badge:Low priority": 1,
+                "threshold:views": 1, "threshold:conversion": 1, "overflow": 1},
+    "scatter_log": {"badge:Winners": 1, "badge:Hidden gems": 1, "badge:Wasted exposure": 1, "badge:Low priority": 1,
+                    "threshold:views": 1, "threshold:conversion": 1},
+    "period_bars": {"lift": 1},
+    "heatmap": {None: 13, "lean": 4},
+}
+
+
+def test_figures_without_notes_are_unchanged():
+    from collections import Counter
+
+    figs = _all_figures()
+    for name, expected in BASELINE_ANNOTATIONS.items():
+        assert dict(Counter(a.name for a in figs[name].layout.annotations)) == expected, name
+    for empty in (None, [], NotesResult()):
+        assert charts.period_bars(_period_df(), notes=empty).to_json() == figs["period_bars"].to_json()
+    products = _products()
+    for scale in ("linear", "log"):
+        plain = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale=scale)
+        for empty in (None, [], NotesResult()):
+            same = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale=scale, notes=empty)
+            assert same.to_json() == plain.to_json()
+
+
+def test_scatter_note_sits_on_its_bubble_on_log_axes():
+    products = _products()
+    gem = _code_row(products, "G1")
+    notes = NotesResult([ChartNote("G1", "highlight", "Best hidden gem", "Converts well.", 1)], source="ai")
+    fig = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale="log", notes=notes)
+    (ann,) = _note_ann(fig, "ai")
+    assert ann.x == pytest.approx(np.log10(gem["views"]))  # log axes take log10 coordinates
+    assert ann.y == pytest.approx(np.log10(gem["cr_raw"]))
+    assert ann.showarrow and ann.text == "<b>1</b> Best hidden gem" and ann.hovertext == "Converts well."
+    assert ann.bordercolor == config.PALETTE["ink"] and ann.font.color == config.PALETTE["ink"]
+    # The box is pushed toward the interior: left of a bubble in the right half, below one in the top third.
+    lo, hi = fig.layout.xaxis.range
+    assert (ann.ax < 0) == ((ann.x - lo) / (hi - lo) > 0.5)
+    assert ann.xanchor == ("right" if ann.ax < 0 else "left")  # the box grows toward the interior
+    y_lo, y_hi = fig.layout.yaxis.range
+    assert (ann.ay > 0) == ((ann.y - y_lo) / (y_hi - y_lo) > 2 / 3)
+    assert ann.standoff >= charts.BUBBLE_MIN_PX / 2
+
+
+def test_scatter_note_on_a_clipped_bubble_points_at_the_drawn_cap():
+    products = _products()
+    products.loc[0, "code"] = "G9"  # product 00 is clipped to the top edge on the linear axis
+    notes = [ChartNote("G9", "highlight", "Off the chart", "Clipped.")]
+    fig = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale="linear", notes=notes)
+    (ann,) = _note_ann(fig)
+    drawn = next(t.y[i] for t in fig.data for i, row in enumerate(t.customdata) if row[0] == "product 00")
+    assert ann.y == pytest.approx(drawn) and ann.y < products.loc[0, "cr_raw"]
+    assert ann.x == pytest.approx(np.log10(products.loc[0, "views"]))
+    assert ann.ay > 0  # top third: the box hangs below the bubble
+
+
+def test_scatter_notes_skip_undrawn_points_and_keep_their_numbers():
+    products = _products()
+    notes = NotesResult([
+        ChartNote("Z9", "highlight", "Not a bubble", "Skipped.", 1),
+        ChartNote("X1", "caution", "Most purchases forgone", "Retire it.", 2),
+    ], source="rule")
+    fig = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, notes=notes)
+    (ann,) = _note_ann(fig)
+    assert ann.text == "<b>2</b> <b>!</b> Most purchases forgone"
+    assert ann.bordercolor == config.PALETTE["coral"] and ann.font.color == config.PALETTE["ink"]
+    unnumbered = [ChartNote("Z9", "highlight", "a", "b"), ChartNote("X1", "caution", "c", "d")]
+    (ann,) = _note_ann(charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, notes=unnumbered))
+    assert ann.text.startswith("<b>2</b>")  # its place in the list
+
+
+def test_bar_note_sits_above_its_bar_and_the_y_range_grows():
+    plain = charts.period_bars(_period_df())
+    notes = NotesResult([ChartNote("Apparel·cyber_week", "highlight", "Biggest rise", "Up 55%.", 1),
+                         ChartNote("Drinkware·baseline", "highlight", "Base bar", "Not offered.", 2),
+                         ChartNote("Bags·cyber_week", "caution", "Not drawn", "No such bar.", 3)], source="ai")
+    fig = charts.period_bars(_period_df(), notes=notes)
+    (ann,) = _note_ann(fig, "ai")[:1]
+    focus = fig.data[1]
+    assert ann.x == pytest.approx(focus.x[0]) and ann.y == pytest.approx(0.0062 * 1.1)  # Apparel's focus whisker top
+    assert ann.ax == 0 and ann.ay == -charts.NOTE_BAR_DY and ann.standoff > 17  # clear of the "+55%" label
+    lift = next(a for a in fig.layout.annotations if a.name == "lift")
+    assert (lift.x, lift.y) == (ann.x, ann.y)
+    assert [a.text for a in _note_ann(fig, "ai")] == ["<b>1</b> Biggest rise"]  # base bars and missing bars: skipped
+    top = 0.0062 * 1.1
+    assert plain.layout.yaxis.range[1] == pytest.approx(top * charts.BAR_HEADROOM)
+    assert fig.layout.yaxis.range[1] == pytest.approx(top * charts.NOTE_BAR_HEADROOM)
+    unplaced = charts.period_bars(_period_df(), notes=[ChartNote("Nope·x", "highlight", "a", "b")])
+    assert unplaced.to_json() == plain.to_json()  # no note drawn: the figure is unchanged
+
+
+def test_heatmap_cells_match_the_drawn_heatmap():
+    m = _device_matrix()
+    m.loc[(m["device"] == "tablet") & (m["product_key"] == "alpha tee"), "views"] = 5
+    cells = charts.heatmap_cells(m, codes={"beta mug": "G2"})
+    fig = charts.device_heatmap(m, _lean())
+    assert len(cells) == 4 * len(config.DEVICES)
+    assert list(dict.fromkeys(cells["item_name"])) == list(fig.layout.yaxis.ticktext)
+    for t in fig.data:
+        for i, row in enumerate(np.asarray(t.z, dtype=float)):
+            for x, z in zip(t.x, row):
+                cell = cells[(cells["row"] == i) & (cells["col"] == x)].iloc[0]
+                assert (np.isnan(z) and np.isnan(cell["z"])) or z == pytest.approx(cell["z"])
+    sparse = cells[cells["sparse"]]
+    assert list(sparse["anchor"]) == ["R1·tablet"]
+    assert "G2·mobile" in set(cells["anchor"])
+    assert charts.heatmap_cells(None).empty and charts.heatmap_cells(pd.DataFrame()).empty
+
+
+def test_heatmap_note_adds_a_cell_rectangle_and_a_badge():
+    plain = charts.device_heatmap(_device_matrix(), _lean())
+    notes = NotesResult([ChartNote("W1·desktop", "highlight", "Desktop-first hero", "Up.", 1),
+                         ChartNote("R3·mobile", "caution", "Weak", "Down & <out>.", 2),
+                         ChartNote("Z9·mobile", "highlight", "Missing", "No such cell.", 3)], source="rule")
+    fig = charts.device_heatmap(_device_matrix(), _lean(), notes=notes, codes={"alpha tee": "W1"})
+    rects = [s for s in fig.layout.shapes if s.name == "note:rule"]
+    badges = _note_ann(fig)
+    assert len(rects) == len(badges) == 2
+    names = list(fig.layout.yaxis.ticktext)
+    alpha, beta = names.index("Alpha Tee"), names.index("Beta Mug")
+    desktop, mobile = config.DEVICES.index("desktop"), config.DEVICES.index("mobile")
+    assert rects[0].x0 < desktop < rects[0].x1 and rects[0].y0 < alpha < rects[0].y1
+    assert rects[0].line.color == config.PALETTE["ink"] and rects[1].line.color == config.PALETTE["coral"]
+    assert rects[1].x0 < mobile < rects[1].x1 and rects[1].y0 < beta < rects[1].y1
+    assert badges[0].text == "<b>1</b>" and badges[1].text == "<b>2</b> <b>!</b>"  # no label on the grid
+    assert (badges[0].x, badges[0].y) == (desktop - 0.5, alpha - 0.5)
+    assert badges[1].hovertext == "Weak: Down &amp; &lt;out&gt;."
+    # Without notes the heatmap is unchanged.
+    for empty in (None, [], NotesResult()):
+        assert charts.device_heatmap(_device_matrix(), _lean(), notes=empty).to_json() == plain.to_json()
+
+
+def test_scatter_notes_on_neighbouring_bubbles_do_not_overlap():
+    """Seen in the live run: G1 and G2 sit close together and their boxes landed on each other."""
+    products = _products()
+    g1 = products.index[products["code"] == "G1"][0]
+    w1 = products.index[products["code"] == "W1"][0]
+    near = products.index[products["code"] == "G2"][0]
+    products.loc[near, ["views", "cr_raw"]] = [products.loc[g1, "views"] * 1.05, products.loc[g1, "cr_raw"] * 0.95]
+    notes = [ChartNote(c, "highlight", f"Note for {c}", "d") for c in ("G1", "G2", "W1")]
+    fig = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale="log", notes=notes)
+    a, b, w = _note_ann(fig)
+    assert (a.ay > 0) != (b.ay > 0) or abs(a.ay - b.ay) >= charts.NOTE_BOX_PX  # other side, or stacked
+    alone = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale="log", notes=notes[2:])
+    assert (w.ax, w.ay) == (_note_ann(alone)[0].ax, _note_ann(alone)[0].ay)  # a note far from the others keeps its place
+    assert products.loc[w1, "views"] > 3 * products.loc[g1, "views"]
+
+
+def test_bar_notes_on_neighbouring_bars_stack_upward():
+    base = _period_df().query("group == 'Apparel'")
+    df = pd.concat([base.assign(group=g) for g in config.CATEGORY_GROUPS], ignore_index=True)  # 7 equal groups
+    notes = [ChartNote("Apparel·cyber_week", "highlight", "A long label that is wide", "d"),
+             ChartNote("Drinkware·cyber_week", "highlight", "Another long wide label", "d"),
+             ChartNote("Lifestyle & Gifts·cyber_week", "highlight", "Far away", "d")]
+    a, b, far = _note_ann(charts.period_bars(df, notes=notes))
+    assert a.ay == -charts.NOTE_BAR_DY and b.ay == -charts.NOTE_BAR_DY - charts.NOTE_BOX_PX  # next-door bars
+    assert far.ay == -charts.NOTE_BAR_DY
+    two = _period_df().assign(cr=0.005, ci_low=0.0045, ci_high=0.0055)  # two groups: half the plot apart
+    a, b = _note_ann(charts.period_bars(two, notes=[ChartNote("Apparel·cyber_week", "highlight", "x", "d"),
+                                                    ChartNote("Drinkware·cyber_week", "highlight", "y", "d")]))
+    assert a.ay == b.ay == -charts.NOTE_BAR_DY
+
+
+def test_note_text_is_escaped():
+    notes = [ChartNote("W1", "highlight", "<b>Tee</b> & Co", "Bold <i>claim</i> & more")]
+    (ann,) = _note_ann(charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP, notes=notes))
+    assert ann.text == "<b>1</b> &lt;b&gt;Tee&lt;/b&gt; &amp; Co"
+    assert ann.hovertext == "Bold &lt;i&gt;claim&lt;/i&gt; &amp; more"
