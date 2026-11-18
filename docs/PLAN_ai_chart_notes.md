@@ -1,6 +1,6 @@
 # Plan: AI chart notes
 
-**Branch:** `feature/ai-chart-notes` · **Status:** built (steps 1–4 and 6–8); step 5, the live OpenRouter run, still to do · **Written:** 2026-11-17
+**Branch:** `feature/ai-chart-notes` · **Status:** built (steps 1–8); step 5's live run covers Haiku 5.5 and free models fully but Opus 5.5 with only one call, because of the key's credit · **Written:** 2026-11-17
 
 > **As built.** The implementation and the decisions made while building it are in [DESIGN.md section 7b](DESIGN.md#7b-ai-chart-notes-ga4appannotatepy-charts_draw_notes-uichart_notes_). Differences from this plan:
 >
@@ -10,6 +10,7 @@
 > - Heatmap anchor IDs come from `charts.heatmap_cells(matrix, codes=...)`, so `device_heatmap` takes `codes` too; `R<row>` is the 1-based row number. The 30-anchor cap keeps strong-lean products' cells first, so they are never cut.
 > - The Holiday Shift scope carries `significance_level: 0.05`, so a note may say "p < 0.05"; rule-based bar notes write the lift rounded like the bar's own label.
 > - Validation keeps the first four notes before the number check, as in 3.3, and shortens text at a word boundary so a number is never cut.
+> - Added after the live run (step 5): heatmap cells also carry `other_devices_pct` and `vs_usual_pct`; scopes carry `interval_level_pct`; anchor IDs match after Unicode normalisation; "per 1,000" is a unit; a pass keeps scatter and bar note boxes off each other and inside the plot; the prompt is `notes-2026-11-18.2`.
 
 ## 1. Goal
 
@@ -266,7 +267,7 @@ Each step is one commit, and the suite stays green after each.
 | 2 | ~~`annotate.py`: scatter anchors, `rule_based_notes`, `validate_notes` with the number check~~ Done. | `test_annotate.py` scatter tests pass |
 | 3 | ~~UI helpers and Feature Picks wiring, rule-based only~~ Done. | AppTest: the toggle draws notes and the list |
 | 4 | ~~AI call: prompt, `ai_notes`, fake responder, cache, "Write AI notes" button~~ Done. | AppTest with the fake transport passes |
-| 5 | **Manual, still to do:** live run against OpenRouter with Claude Opus 5.5 and one free model. Record the cost per call, how often notes are dropped and why, and the latency. Tune the prompt and bump `NOTES_PROMPT_VERSION`. No key was available while building; the table to fill is in DESIGN.md 7b. | numbers recorded in DESIGN.md; the cost note shown in the UI |
+| 5 | ~~**Manual:** live run against OpenRouter with Claude Opus 5.5 and one free model. Record the cost per call, how often notes are dropped and why, and the latency. Tune the prompt and bump `NOTES_PROMPT_VERSION`.~~ Done on 2026-11-18, with one gap: the key's credit allowed a single Opus call (scatter: 4/4 kept, \$0.021, 5.2 s), so Claude Haiku 5.5 stands in for the paid model across all six chart scopes. `google/gemma-4-31b-it:free` was rate-limited upstream all session, so the free model is `openrouter/free`. The prompt went to `notes-2026-11-18.2`; results and changes in DESIGN.md 7b. | numbers recorded in DESIGN.md; the cost note shown in the UI |
 | 6 | ~~Holiday Shift: anchors, bar placement, wiring, tests~~ Done; the screenshot shows no overlap with the lift labels. | tests pass; screenshot checked for overlap with lift labels |
 | 7 | ~~Device Split: `heatmap_cells` refactor, anchors, cell placement, wiring, tests~~ Done; the heatmap figure is byte-identical. | tests pass; heatmap colours unchanged |
 | 8 | ~~Docs: DESIGN.md section "AI chart notes", README feature and screenshots, "What is still missing"~~ Done. | then open a PR to `main` |

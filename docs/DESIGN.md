@@ -889,24 +889,25 @@ Built from [`PLAN_ai_chart_notes.md`](PLAN_ai_chart_notes.md). Numbered notes on
 |---|---|---|---|---|
 | Scatter | `scatter_anchors(payload, products, conflict_keys)` | product code `G1` | the verdict payload entry (name, category, views, purchases, `conversion_pct`, `adjusted_conversion_pct`, 80% `interval_pct`, `vs_avg`, `confidence`, `lift_per_1k` or `forgone_purchases`, `views_undercount`, `device_lean`) + `quadrant` + `cannibal_pair` | uncoded and ineligible products; at most 15 |
 | Bars | `holiday_anchors(groups, filters=...)` | `Apparel·cyber_week` (`charts`/`annotate` share `config.NOTE_ANCHOR_SEP`) | category, window, `conversion_pct`, `base_conversion_pct`, 95% `interval_pct`, `lift_pct`, `p_value`, `significant`, `lift_vs_rest_pct`, `p_value_vs_rest` | base-window bars; `low_sample` bars |
-| Heatmap | `heatmap_anchors(charts.heatmap_cells(matrix, codes=...), lean, scope=...)` | `G1·mobile`, or `R3·mobile` (3rd row, 1-based) for an uncoded product | name, device, `conversion_pct` (the cell text), `x_usual` (the colour's multiple, 2 decimals), views, purchases, `lean` | sparse tablet cells; cells with abs(log2(rel)) < 0.25 unless the product leans strongly; at most 30, strong-lean products' cells first, then the strongest |
+| Heatmap | `heatmap_anchors(charts.heatmap_cells(matrix, codes=...), lean, scope=...)` | `G1·mobile`, or `R3·mobile` (3rd row, 1-based) for an uncoded product | name, device, `conversion_pct` (the cell text), `x_usual` (the colour's multiple, 2 decimals), `vs_usual_pct` (the same as a percent difference), views, purchases, `other_devices_pct` (the product's other readable cells), `lean` | sparse tablet cells; cells with abs(log2(rel)) < 0.25 unless the product leans strongly; at most 30, strong-lean products' cells first, then the strongest |
 
 - Facts use `narrative`'s rounding (percent with 2 decimals, counts as integers, multiples with 2 decimals), so the number check compares like with like.
-- Scope: scatter = window, filters, average conversion, views threshold; bars = base and focus labels and dates, filters, `significance_level` 0.05; heatmap = window, filters, candidate list.
+- Scope: scatter = window, filters, average conversion, views threshold, `interval_level_pct` 80; bars = base and focus labels and dates, filters, `significance_level` 0.05, `interval_level_pct` 95; heatmap = window, filters, candidate list.
 - `charts.heatmap_cells` is the per-cell computation that used to live inside `device_heatmap` (row order, `rel`, `z`, `sparse`, plus the anchor ID). The chart and the anchors both read it, so a note quotes exactly what the cell shows. The heatmap figure is byte-identical to before.
 - **Anchors depend only on data controls** (sidebar filters, the high-traffic cutoff, the Holiday Shift comparison, the Device Split candidate list). Log/Linear, bubble size and colour are chart arguments only. **Raw/Adjusted** is a data control in this app: `metrics.classify` puts products in quadrants by the plotted metric, so it could re-code products. On the real and synthetic snapshots it gives the same coded products, hence the same anchors and cache key, in every scope tried (full season, min views 0, Cyber Week). When it does re-code products, the key changes and the notes are rewritten, which is right: a note must point at the bubble that carries its code.
 
 **The model call** (`ai_notes`)
-- Own prompt, `NOTES_PROMPT_VERSION = "notes-2026-11-17.1"`: the verdict's analyst role; at most 4 anchors; each note has `anchor`, `kind` (`highlight` / `caution`), a `label` of 5 words or fewer and a `detail` of 25 words or fewer; copy numbers exactly, never compute new ones; at least one caution when an anchor carries `views_undercount`, `cannibal_pair` or `confidence: "uncertain"`; products named with their code in brackets; reply with `{"notes": [...]}` only. Definitions cover the fields of all three charts.
+- Own prompt, `NOTES_PROMPT_VERSION = "notes-2026-11-18.2"` (tuned in the live run below): the verdict's analyst role; at most 4 anchors; each note has `anchor` (copied character for character), `kind` (`highlight` / `caution`), a `label` of at most 5 words and 30 characters saying why it matters, and a `detail` of 25 words or fewer that starts with the product (name and code) or category; plain English with no field names; copy numbers exactly, never compute new ones, keep multiples as multiples; never call anything the highest, lowest, most, least, best or worst (the model sees only the anchors); at least one caution when an anchor carries `views_undercount`, `cannibal_pair` or `confidence: "uncertain"`; reply with `{"notes": [...]}` only. Definitions cover the fields of all three charts.
 - User message: `Annotate this chart. JSON:` + `{"chart", "question", "scope", "anchors"}`.
 - Transport: `llm.stream_chat` unchanged (same model, fallbacks and key as the verdict), text events joined, no `response_format`. Any `OpenRouterError`, network error or empty reply gives the rule-based notes with `error` = the reason.
+- A reply with no text because the model spent its whole token budget reasoning (`finish_reason: "length"`, seen with free models) gives the error "the model used up its token budget before answering; try again or choose another model".
 - Offline: `llm.fake_transport(respond=...)` takes a function from the request body to text chunks (default: the verdict's `FAKE_TEXT_CHUNKS`); `annotate.fake_respond` notes the first two anchors without numbers, so it passes on any data. `GA4APP_LLM_FAKE=1` selects it.
 
 **Validation** (`validate_notes`; rule-based notes go through it too)
 1. Parse: strip code fences, decode the first JSON value at a `{` or `[` (`{"notes": [...]}` or a bare list). Unreadable: rule-based notes, error "AI notes could not be read".
 2. Shape: `anchor`, `label`, `detail` must be non-empty strings; an unknown `kind` becomes `highlight`.
-3. Anchor: unknown → dropped, duplicate → dropped, then the first `NOTES_MAX = 4` are kept.
-4. Number check (`unmatched_numbers`): product codes (`[A-Z]\d{1,3}`) and the anchor ID are removed; every number (`\d+(?:,\d{3})*(?:\.\d+)?`) written with d decimals must satisfy abs(x − v) ≤ 0.5·10^−d for some v among this anchor's facts and the scope, including numbers inside strings (dates, "min 200 views"). Integers 1–5 pass as counting words; signs are compared by absolute value.
+3. Anchor: compared after Unicode normalisation (NFKC) and whitespace collapsing, so an ID typed back with a non-breaking space still matches; unknown → dropped, duplicate → dropped, then the first `NOTES_MAX = 4` are kept.
+4. Number check (`unmatched_numbers`): product codes (`[A-Z]\d{1,3}`) and the anchor ID are removed; every number (`\d+(?:,\d{3})*(?:\.\d+)?`) written with d decimals must satisfy abs(x − v) ≤ 0.5·10^−d for some v among this anchor's facts and the scope, including numbers inside strings (dates, "min 200 views"). Integers 1–5 pass as counting words; signs are compared by absolute value; "per 1,000" is read as the unit of `lift_per_1k`.
 5. Length: label to 40 and detail to 200 characters, cut at a word so a number is never cut in half, ending with "...".
 6. Stored unescaped; `charts._esc` escapes for Plotly, `narrative.md_safe` plus markdown escaping for the list.
 7. No survivors (or an empty list): rule-based notes, error "no AI note passed the checks", with `dropped = [(anchor, reason)]`.
@@ -918,8 +919,9 @@ Built from [`PLAN_ai_chart_notes.md`](PLAN_ai_chart_notes.md). Numbered notes on
 
 **Placement** (`ChartNote(anchor, kind, label, detail, n)` and `NotesResult` in `types.py`)
 - `_draw_notes`: annotation `note:<source>`, text `<b>n</b> label` (cautions: `<b>n</b> <b>!</b> label`, coral border), detail on hover, white box, ink text.
-- Scatter: at the drawn point (`log10(views)`, `log10(y_plot)` on a log y axis), so a clipped bubble's arrow goes to the edge; the box sits 40 px toward the centre horizontally and 30 px vertically (below in the top third); the arrow stops at the bubble's radius.
+- Scatter: at the drawn point (`log10(views)`, `log10(y_plot)` on a log y axis), so a clipped bubble's arrow goes to the edge; the box sits 40 px toward the centre horizontally and 30 px vertically (below in the top third), and grows toward the interior (`xanchor` right of a left box, left of a right box), so no box hangs over an edge; the arrow stops at the bubble's radius.
 - Bars: at the focus bar's `x[j]` and whisker top, 40 px above; the arrow stops above the lift label; the y headroom grows from 1.18 to 1.35 when a note is drawn.
+- Overlap (`_spread_notes`, scatter and bars): in note order, a box that would overlap an earlier one moves to the other side of its point (scatter only), then one box height (24 px) further out, staying inside the plot. The plot's pixel width follows the page, so it is guessed (700 px, a box up to 32% of it); a wrong guess only stacks boxes that would not have touched. Code labels (W1, G2) are not obstacles, so a box can still cover one.
 - Heatmap: a rectangle around the cell and a numbered badge in its top-left corner; the label is in the list only.
 - With no notes drawn, every figure is unchanged (tests compare the JSON).
 
@@ -928,12 +930,33 @@ Built from [`PLAN_ai_chart_notes.md`](PLAN_ai_chart_notes.md). Numbered notes on
 - `ui.chart_notes_list(result, anchors, *, key_prefix, inspect=False)` under it: the source caption ("AI notes · model · every number checked against the data" or "Rule-based notes from the numbers on this chart"), a warning with the dropped notes or the failure, then "**n** label: detail". Feature Picks adds an Inspect button per product note.
 - `ui.chart_with_table(..., alt_extra=ui.notes_alt(notes))` puts the note sentences into the chart's alt text only.
 
-**Live run (plan step 5): not done yet.** No `OPENROUTER_API_KEY` was available while building. To do, together with the first live verdict run: Claude Opus 5.5 and one free model on all three charts; record per call the cost (`usage.cost`), latency, notes returned and dropped with the reasons; tune the prompt and bump `NOTES_PROMPT_VERSION`; then put the measured cost in `ui.NOTES_COST_NOTE`.
+**Live run (plan step 5), 2026-11-18.** Real snapshot; six anchor sets per model (scatter: full season and Cyber Week; heatmap: the same two scopes, Winners + Hidden gems, top 20; bars: baseline vs Cyber Week and vs December), each called exactly as `ai_notes` does, plus one verdict per model. Prompt versions: v1 = `notes-2026-11-17.1`, v2 = `notes-2026-11-18.1`, v3 = `notes-2026-11-18.2`.
 
-| Model | Chart | Cost per call | Latency | Notes returned / dropped | Drop reasons |
-|---|---|---|---|---|---|
-| `anthropic/claude-opus-5.5` | scatter / bars / heatmap | – | – | – | – |
-| a free model | scatter / bars / heatmap | – | – | – | – |
+| Model | Prompt | Calls | Answered | Notes kept / dropped | Latency | Cost per call |
+|---|---|---|---|---|---|---|
+| `anthropic/claude-opus-5.5` | v2 | 1 (scatter, full season) | 1 | 4 / 0 | 5.2 s (first token 2.4 s) | \$0.0214 (3,509 prompt tokens \$0.0140 + 366 output \$0.0073; no reasoning tokens) |
+| `anthropic/claude-haiku-5.5` | v1 | 6 | 6 | 23 / 1 | 4.1–6.2 s | \$0.0006–0.0010 |
+| `anthropic/claude-haiku-5.5` | v2 | 6 | 6 | 23 / 1 | 4.2–7.0 s | \$0.0008–0.0010 |
+| `anthropic/claude-haiku-5.5` | v3 | 6 | 6 | **24 / 0** | 5.0–7.4 s | \$0.0008–0.0012 |
+| `openrouter/free` (a different free model each call) | v1 | 6 | 6 | 16 / 7 | 9–54 s | \$0 |
+| `openrouter/free` | v2 | 6 | 4 (2 used up the token budget) | 16 / 0 | 21–43 s | \$0 |
+| `openrouter/free` | v3 | 6 | 3 (3 used up the token budget) | 12 / 0 | 14–23 s | \$0 |
+| `google/gemma-4-31b-it:free` | v1–v3 | 13 | 0 | – | – | HTTP 429 every time: "temporarily rate-limited upstream" (Google AI Studio's shared free pool) |
+
+Verdict, same session: Haiku 5.5 \$0.0011–0.0012 and 6.5 s (4,030 prompt tokens), free models 8–15 s; no unknown product codes from either. Opus was not run for the verdict (see the balance note below); at Opus prices and the token counts above, a verdict should cost about \$0.02–0.03, inside `ui.COST_NOTE`'s \$0.02–0.05.
+
+**Why notes were dropped, and what changed** (v1 → v2 → v3):
+- Heatmap notes compared a cell with the product's other device ("9.82% on desktop vs 2.15% on mobile": 2.15 came from another anchor) or turned `x_usual` 1.24 into "24% above its usual rate". Both are true, so cells now carry `other_devices_pct` and `vs_usual_pct`.
+- An anchor came back as `Lifestyle &\u00a0Gifts·cyber_week` (a non-breaking space): IDs now match after Unicode normalisation.
+- "57.2 extra purchases per 1,000 views" (1,000 is the unit of `lift_per_1k`) and "its 95% range" (the interval's level) were false positives: "per 1,000" is now a unit and each scope carries `interval_level_pct`.
+- Quality, not caught by the check: field names in the text ("adjusted_conversion_pct 6.51"), `lift_vs_rest_pct` read as "above the store average", holiday notes that never named their category, labels cut at 40 characters, and rank claims the model cannot know ("lowest mobile rate shown", false: it saw only the offered cells). The prompt now covers each; v3 Haiku notes all start with their product or category and no label was cut.
+- Free models: 5 of the 12 v2–v3 calls spent all 4,000 tokens on reasoning and returned nothing; the app then shows the rule-based notes with a clear message. Every free-model note that did come back in v2–v3 passed the checks.
+
+**Seen in the running app** (Haiku 5.5, `streamlit run` with the key, "Write AI notes" clicked in a browser on all three pages): notes drawn as `note:ai`, no warnings. Two neighbouring hidden gems had overlapping boxes and a box near the right edge covered the "Average" label, which led to `_spread_notes` and the inward-growing boxes above.
+
+**Limits that remain:**
+- The number check cannot tell whether a correct number is used correctly; a model can still misread a fact (e.g. call a 35% lift-beyond-the-rest "35 points").
+- **OpenRouter reserves `max_tokens` × price before a call.** The app asks for 4,000 tokens (free reasoning models need them), so an Opus call needs about \$0.09 of available credit even though it costs about \$0.02. With less, every Opus or Sonnet call returns "out of OpenRouter credits, HTTP 402" and the page keeps the rule-based notes. The key used here had about \$0.035, enough for one Opus call with a lower cap, which is why Opus has one data point and the other paid figures are from Haiku.
 
 ## 8. Tests and end-to-end verification
 

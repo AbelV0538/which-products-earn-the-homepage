@@ -4,7 +4,7 @@
 
 *ITCS 5122 Visual Analytics · Team 9 · Account D · Pitch 1. Client: Head of Merchandising.*
 
-> **Status:** working app with 7 pages, running on real GA4 data pulled live from BigQuery plus real Google Trends data. There are 459 automated tests, all passing, run on every push by GitHub Actions. See [What is still missing](#what-is-still-missing).
+> **Status:** working app with 7 pages, running on real GA4 data pulled live from BigQuery plus real Google Trends data. There are 465 automated tests, all passing, run on every push by GitHub Actions. See [What is still missing](#what-is-still-missing).
 
 ![Feature Picks page](docs/screenshots/feature_picks.png)
 
@@ -28,11 +28,11 @@ The app runs entirely from the small snapshot files committed in `data/` (a few 
 
    | Model | Notes |
    |---|---|
-   | `anthropic/claude-opus-5.5` | Default; about $0.02–0.05 per verdict |
+   | `anthropic/claude-opus-5.5` | Default; about $0.02–0.05 per verdict and $0.02 per chart's notes (measured: $0.021). OpenRouter holds `max_tokens` × price first, so keep about $0.10 of credit available |
    | `anthropic/claude-sonnet-5.5` | |
-   | `anthropic/claude-haiku-5.5` | |
+   | `anthropic/claude-haiku-5.5` | About $0.001 per verdict or chart's notes (measured), 4–7 s |
    | `anthropic/claude-fable-5.1` | |
-   | `openrouter/free`, `google/gemma-4-31b-it:free` | Free; limited to 50 requests/day without credits |
+   | `openrouter/free`, `google/gemma-4-31b-it:free` | Free; limited to 50 requests/day without credits. Slower (8–60 s); reasoning models sometimes use up their token budget, and Gemma's shared pool was rate-limited all day on 2026-11-18 |
    | A custom model id | |
 
 Without a key, the app shows a deterministic rule-based verdict built from the same numbers. `.streamlit/secrets.toml` is git-ignored: never commit a key. The same key and model also write the [chart notes](#chart-notes).
@@ -58,13 +58,13 @@ Three charts can also point out what matters themselves: see [Chart notes](#char
 The Feature Picks scatter, the Holiday Shift bars and the Device Split heatmap have a **Point out what matters** toggle (off by default). It draws up to four numbered notes on the chart, at the bubbles, bars or cells that matter for the homepage decision, and lists them under the chart. Cautions (views that look under-counted, a significant drop, a weak device) get a coral border and a "!".
 
 - **Rule-based notes work without a key.** Feature Picks points at the best hidden gem [G1], the top winner [W1] and the product with the most purchases forgone [X1], and flags a featured pick whose views look under-counted. Holiday Shift points at the largest significant rise and drop. Device Split points at the favoured device of up to two mobile-first or desktop-first products, then at the strongest remaining cell.
-- **Write AI notes** asks the sidebar's model to choose the notes instead. The app offers it a fixed list of anchors (product codes, `category·window` bars, `code·device` cells) with their numbers, and the model can point only at those.
+- **Write AI notes** asks the sidebar's model to choose the notes instead. The app offers it a fixed list of anchors (product codes, `category·window` bars, `code·device` cells) with their numbers, and the model can point only at those. Measured on the real data: Claude Opus 5.5 about $0.02 and 5 s per chart; Claude Haiku 5.5 under $0.001, with all 24 notes in the final test run passing the checks (details in [DESIGN.md 7b](docs/DESIGN.md)).
 - **Every note is checked before it is drawn.** The anchor must be one the app offered, and every number in the text must be a rounding of a number in that anchor's data or the chart's scope. A note that fails is dropped, and the page says which and why. If none survive, or the call fails, the rule-based notes are shown with a warning.
-- **The app places the notes, not the model.** Arrows point at the drawn bubble (a clipped bubble's arrow goes to the edge), bar notes sit above the lift label, and heatmap notes outline the cell with a numbered badge.
+- **The app places the notes, not the model.** Arrows point at the drawn bubble (a clipped bubble's arrow goes to the edge), bar notes sit above the lift label, and heatmap notes outline the cell with a numbered badge. Boxes that would overlap move to the other side of their point or stack.
 - **AI notes are cached** by the anchors and the model. Switching only how the chart is drawn (log or linear scale, bubble size, colour) re-places the same notes without a new call.
 - On Feature Picks, each product note has an **Inspect** button that opens the product inspector.
 
-| Feature Picks, with rule-based notes | Holiday Shift |
+| Feature Picks, live AI notes (Claude Haiku 5.5) | Holiday Shift, rule-based note |
 |---|---|
 | ![Chart notes on the Feature Picks scatter](docs/screenshots/chart_notes_feature_picks.png) | ![A chart note on the Holiday Shift bars](docs/screenshots/chart_notes_holiday_shift.png) |
 
@@ -243,8 +243,8 @@ docs/DESIGN.md         full design: contracts, SQL, formulas, page specs
 
 | Area | Status |
 |---|---|
-| Live AI verdict | ⏳ **Not yet run against the real OpenRouter API.** It is tested with a mocked stream (parsing, errors, fallbacks). Needs an `OPENROUTER_API_KEY` to check end to end. |
-| Live AI chart notes | ⏳ **Not yet run against the real OpenRouter API either** (step 5 of [the plan](docs/PLAN_ai_chart_notes.md)). Tested with an offline fake model. The live run should record the cost per call, how often the checks drop notes and why, and the latency, for Claude Opus 5.5 and one free model, in the same session as the verdict. |
+| Live AI verdict | ✅ Run on 2026-11-18 with Claude Haiku 5.5 (about $0.001, 6.5 s) and free models (8–15 s); no unknown product codes. ⏳ **Not yet run with the default Claude Opus 5.5**: the key used had too little credit for a 4,000-token request. |
+| Live AI chart notes | ✅ Run on 2026-11-18 on all three charts and in the running app; the prompt was tuned twice from what it showed. ⏳ **Claude Opus 5.5 has one data point** (the Feature Picks scatter: 4 of 4 notes kept, $0.021, 5.2 s) for the same credit reason; the rest of the paid figures are from Haiku 5.5. See [DESIGN.md 7b](docs/DESIGN.md). |
 | "Re-run proof query live" button (Data & Method) | ⏳ Only works on a machine with cached BigQuery credentials. It is disabled elsewhere and has not been clicked in the running app. |
 | Deployment | ⏳ Not deployed. The app is ready for Streamlit Community Cloud, since it runs from the committed snapshots, and the key can go in the Cloud app's secrets. |
 | `TEAM9.pdf` (original pitch deck) | Intentionally not committed. |
