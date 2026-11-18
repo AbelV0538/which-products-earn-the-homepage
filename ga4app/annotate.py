@@ -21,6 +21,7 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -31,7 +32,7 @@ import pandas as pd
 from . import config, llm, narrative
 from .types import ChartNote, NotesResult
 
-NOTES_PROMPT_VERSION = "notes-2026-11-17.1"
+NOTES_PROMPT_VERSION = "notes-2026-11-18.1"  # tuned after the first live run (DESIGN.md 7b)
 
 NOTE_KINDS = ("highlight", "caution")
 COUNTING_WORDS = frozenset({1, 2, 3, 4, 5})  # "top 3" needs no source number
@@ -65,14 +66,18 @@ Task
 the whole chart) and the anchors: the only bubbles, bars or cells you may point at, each with an \
 id and its facts.
 - Pick at most 4 anchors that matter most for the homepage-slot decision. Fewer is fine.
-- For each, write a note: "anchor" (an id copied exactly from anchors), "kind" ("highlight" for a \
-reason to feature, "caution" for a reason to doubt or retire), "label" (5 words or fewer, drawn \
-on the chart) and "detail" (one sentence of 25 words or fewer, shown under the chart).
+- For each, write a note: "anchor" (an id copied character for character from anchors), "kind" \
+("highlight" for a reason to feature, "caution" for a reason to doubt or retire), "label" (5 \
+words or fewer saying why it matters, not the product's name; drawn on the chart) and "detail" \
+(one sentence of 25 words or fewer, shown under the chart).
+- Write plain English for a merchandiser. Never put field names (such as conversion_pct or \
+lift_vs_rest_pct) or JSON in label or detail.
 
 Grounding
 - Copy every number exactly as it is written in that anchor's facts or in scope; you may round \
 it to fewer decimals. Never compute new numbers: no differences, sums, ratios or percent changes \
-that are not already there.
+that are not already there. Keep a multiple as a multiple ("1.24× its usual rate"); write a \
+percent change only when it is itself a fact (lift_pct, vs_usual_pct).
 - Use only the JSON. Never invent products, causes, stock levels or margins.
 - If any anchor has views_undercount, cannibal_pair or confidence "uncertain", include at least \
 one caution about such an anchor.
@@ -92,9 +97,13 @@ under-counted and its conversion overstated. cannibal_pair: on its spike days a 
 sold less, so featuring both at once may move sales rather than add them.
 - Holiday bars: conversion_pct in the focus window (interval_pct is its 95% interval) against \
 base_conversion_pct in the base window; lift_pct is the relative change, significant means \
-p_value < scope.significance_level; lift_vs_rest_pct is the change beyond the rest of the store.
+p_value < scope.significance_level. lift_vs_rest_pct is how much more (positive) or less \
+(negative) the category's lift was than the rest of the store's, with its own p_value_vs_rest; \
+it does not compare the category's conversion with the store average.
 - Device cells: x_usual is the product's conversion on that device relative to its usual rate \
-across devices (1 = as usual); lean is Mobile-first, Desktop-first, Both or Not enough data.
+across devices (1 = as usual) and vs_usual_pct is the same as a percent difference; \
+other_devices_pct is its conversion on the other devices shown; lean is Mobile-first, \
+Desktop-first, Both or Not enough data.
 
 Reply with JSON only, no prose and no code fences:
 {"notes": [{"anchor": "G1", "kind": "highlight", "label": "...", "detail": "..."}]}"""
@@ -102,6 +111,7 @@ Reply with JSON only, no prose and no code fences:
 _CODE = re.compile(r"\b[A-Z]\d{1,3}\b")  # product codes (G1, W12) and uncoded heatmap rows (R3)
 _NUMBER = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?")
 _FENCE = re.compile(r"```[A-Za-z]*")
+_PER_THOUSAND = re.compile(r"\bper\s+(?:1,?000|1k)\b", re.IGNORECASE)  # the unit of lift_per_1k, not a data number
 
 
 @dataclass
@@ -168,6 +178,7 @@ def scatter_anchors(payload: Mapping[str, Any], products: pd.DataFrame,
     anchors = anchors[:SCATTER_ANCHORS_MAX]
     scope_in = payload.get("scope") or {}
     scope = {k: scope_in[k] for k in SCATTER_SCOPE if scope_in.get(k) is not None}
+    scope["interval_level_pct"] = round(100 * config.CONF_INTERVAL)  # so "its 80% interval" is not an invented number
     return AnchorSet(CHART_SCATTER, scope, anchors,
                      empty="No product has a code in this scope, so there is nothing to point out.",
                      keys={a["id"]: keys[a["id"]] for a in anchors})
@@ -233,6 +244,7 @@ def holiday_anchors(groups: pd.DataFrame | None, *, filters: str = "") -> Anchor
     if filters:
         scope["filters"] = filters
     scope["significance_level"] = narrative.SHIFT_ALPHA
+    scope["interval_level_pct"] = 95  # metrics.period_comparison's Wilson intervals
     return AnchorSet(CHART_BARS, scope, anchors, empty=empty.empty)
 
 
@@ -256,8 +268,14 @@ def heatmap_anchors(cells: pd.DataFrame | None, lean: pd.DataFrame | None = None
     lean_of: dict[str, str] = {}
     if isinstance(lean, pd.DataFrame) and {"product_key", "lean"} <= set(lean.columns):
         lean_of = {narrative._text(k): narrative._text(v) for k, v in zip(lean["product_key"], lean["lean"])}
+    records = cells.to_dict("records")
+    readable: dict[str, dict[str, float | None]] = {}  # product -> {device: conversion_pct} of its readable cells
+    for r in records:
+        if not narrative._flag(r.get("sparse")):
+            readable.setdefault(narrative._text(r.get("product_key")), {})[narrative._text(r.get("device"))] = (
+                narrative._pct(r.get("shown", r.get("cr_raw"))))
     picked = []
-    for r in cells.to_dict("records"):
+    for r in records:
         rel = narrative._num(r.get("rel"))
         if narrative._flag(r.get("sparse")) or rel is None or rel <= 0:
             continue
@@ -273,9 +291,14 @@ def heatmap_anchors(cells: pd.DataFrame | None, lean: pd.DataFrame | None = None
             "device": narrative._text(r.get("device")),
             "conversion_pct": narrative._pct(r.get("shown", r.get("cr_raw"))),
             "x_usual": round(rel, 2),
+            "vs_usual_pct": round(100.0 * (rel - 1.0)),
             "views": narrative._int(r.get("views")),
             "purchases": narrative._int(r.get("purchases")),
         }
+        device = anchor["device"]
+        others = {d: v for d, v in readable.get(key, {}).items() if d != device and v is not None}
+        if others:
+            anchor["other_devices_pct"] = others
         if call:
             anchor["lean"] = call
         picked.append((not strong, -strength, int(r["row"]), int(r["col"]), anchor, key))
@@ -423,7 +446,7 @@ def unmatched_numbers(text: str, facts: Mapping[str, Any], scope: Mapping[str, A
     """
     anchor_id = str(facts.get("id") or "")
     cleaned = text.replace(anchor_id, " ") if anchor_id else text
-    cleaned = _CODE.sub(" ", cleaned)
+    cleaned = _PER_THOUSAND.sub(" per thousand", _CODE.sub(" ", cleaned))
     allowed = _numbers_in({k: v for k, v in facts.items() if k != "id"}) + _numbers_in(scope or {})
     return [t for t in _NUMBER.findall(cleaned) if not _is_rounding(t, allowed)]
 
@@ -469,6 +492,12 @@ def parse_reply(text: str) -> list | None:
     return None
 
 
+def _anchor_key(anchor_id: str) -> str:
+    """An anchor ID compared loosely: Unicode-normalised (NFKC turns a non-breaking space into a
+    space) with runs of whitespace collapsed. Only the spelling is forgiven, never the anchor."""
+    return " ".join(unicodedata.normalize("NFKC", anchor_id).split())
+
+
 def _clip(text: str, limit: int) -> str:
     """``text`` cut to ``limit`` characters at a word boundary, ending with "..."."""
     text = " ".join(str(text).split())
@@ -512,6 +541,7 @@ def validate_notes(
         items = [_as_draft(x) for x in reply]
 
     offered = anchors.by_id
+    by_key = {_anchor_key(a): a for a in offered}  # matches IDs typed back with a non-breaking space etc.
     dropped: list[tuple[str, str]] = []
     staged: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -522,7 +552,7 @@ def validate_notes(
             anchor = item.get("anchor") if isinstance(item, Mapping) else None
             dropped.append((str(anchor or ""), "not a note with an anchor, a label and a detail"))
             continue
-        anchor = item["anchor"].strip()
+        anchor = by_key.get(_anchor_key(item["anchor"]), item["anchor"].strip())
         if anchor not in offered:
             dropped.append((anchor, "unknown anchor"))
             continue

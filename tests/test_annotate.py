@@ -92,7 +92,7 @@ def test_scatter_anchors_are_the_coded_eligible_products(scatter, products):
     assert scatter.by_id["X1"]["cannibal_pair"] is True and "cannibal_pair" not in g1
     assert scatter.by_id["X1"]["forgone_purchases"] == 176.0
     assert scatter.scope == {"window": "Cyber Week", "filters": F.label(), "avg_conversion_pct": 0.5,
-                             "views_threshold": 1000}
+                             "views_threshold": 1000, "interval_level_pct": 80}
     assert scatter.keys == {"W1": "w1", "W2": "w2", "G1": "g1", "G2": "g2", "X1": "x1"}
 
 
@@ -217,6 +217,27 @@ def test_number_check_commas_and_signs():
     assert annotate.unmatched_numbers("Conversion drops 23.4%.", facts) == []
     assert annotate.unmatched_numbers("Conversion drops 24%.", facts) == ["24"]
     assert annotate.unmatched_numbers("1,235 views", facts) == ["1,235"]
+
+
+def test_number_check_reads_per_1000_as_a_unit():
+    facts = {"id": "G1", "lift_per_1k": 57.2}  # seen live: "57.2 extra purchases per 1,000 views"
+    assert annotate.unmatched_numbers("Adds 57.2 extra purchases per 1,000 views.", facts) == []
+    assert annotate.unmatched_numbers("Adds 57.2 extra purchases per 1000 extra views.", facts) == []
+    assert annotate.unmatched_numbers("Drew 1,000 views.", facts) == ["1,000"]
+
+
+def test_anchor_ids_typed_back_with_other_spaces_still_match():
+    anchors = annotate.holiday_anchors(make_groups())
+    reply = _reply(_note(" Bags·cyber_week ", "Bags drops 23%."), _note("Apparel\u00b7cyber_week", "Up 55%."),
+                   _note("Drinkware ·cyber_week"))  # a space the ID does not have: still a different anchor
+    result = annotate.validate_notes(reply, anchors)
+    assert [n.anchor for n in result.notes] == ["Bags·cyber_week", "Apparel·cyber_week"]
+    assert result.dropped == [("Drinkware ·cyber_week", "unknown anchor")]
+    groups = make_groups()
+    groups["group"] = groups["group"].replace({"Bags": "Lifestyle & Gifts"})
+    gifts = annotate.holiday_anchors(groups)
+    nbsp = annotate.validate_notes(_reply(_note("Lifestyle &\u00a0Gifts·cyber_week", "Down 23%.")), gifts)
+    assert [n.anchor for n in nbsp.notes] == ["Lifestyle & Gifts·cyber_week"]  # seen in the first live run
 
 
 def test_number_check_ignores_the_anchor_id():
@@ -404,7 +425,8 @@ def test_holiday_anchors_are_the_tested_focus_bars():
                  "significant": True, "lift_vs_rest_pct": 12.3, "p_value_vs_rest": 0.2}
     assert anchors.by_id["Drinkware·cyber_week"]["significant"] is False
     assert anchors.scope == {"base": "Pre-holiday baseline", "focus": "Cyber Week", "base_dates": "Nov 1 – Nov 22",
-                             "focus_dates": "Nov 23 – Nov 30", "filters": "all devices", "significance_level": 0.05}
+                             "focus_dates": "Nov 23 – Nov 30", "filters": "all devices", "significance_level": 0.05,
+                             "interval_level_pct": 95}
     assert annotate.holiday_anchors(None).anchors == [] and annotate.holiday_anchors(pd.DataFrame()).anchors == []
 
 
@@ -431,6 +453,8 @@ def test_bar_notes_number_check_reads_the_lift_label():
     bags = anchors.by_id["Bags·cyber_week"]  # lift -23.3%
     assert annotate.unmatched_numbers("Bags drops 23% in Cyber Week.", bags, anchors.scope) == []
     assert annotate.unmatched_numbers("Bags drops 1.4 points.", bags, anchors.scope) == ["1.4"]
+    # Seen live: "with a 95% range of 0.22% to 0.36%" names the interval, it does not invent a number.
+    assert annotate.unmatched_numbers("Its 95% range is 0.41% to 0.51%.", bags, anchors.scope) == []
 
 
 @pytest.mark.parametrize("base, focus", config.COMPARISONS)
@@ -499,13 +523,26 @@ def test_heatmap_anchors_follow_the_cells():
     assert w1["x_usual"] == round(cells.loc["W1·desktop", "rel"], 2)  # the number behind the cell's colour
     assert w1["conversion_pct"] == round(100 * cells.loc["W1·desktop", "shown"], 2)  # the cell's text
     assert w1 == {"id": "W1·desktop", "name": "Alpha Tee", "device": "desktop", "conversion_pct": 4.8, "x_usual": 4.0,
-                  "views": 4000, "purchases": 192, "lean": "Desktop-first"}
+                  "vs_usual_pct": 300, "views": 4000, "purchases": 192,
+                  "other_devices_pct": {"mobile": 0.2, "tablet": 0.3}, "lean": "Desktop-first"}
     assert anchors.keys["R4·mobile"] == "beta mug"
 
 
 def test_heatmap_anchors_skip_sparse_tablet_cells():
     assert any(i.endswith("tablet") for i in _heat(tablet_views=300).ids())
-    assert not any(i.endswith("tablet") for i in _heat(tablet_views=10).ids())
+    sparse = _heat(tablet_views=10)
+    assert not any(i.endswith("tablet") for i in sparse.ids())
+    assert "tablet" not in sparse.by_id["W1·desktop"]["other_devices_pct"]  # "–" cells are not quoted either
+
+
+def test_heatmap_notes_may_compare_devices_and_quote_the_percent_difference():
+    """Seen in the first live run: "9.82% on desktop vs 2.15% on mobile" and "24% above its usual
+    rate" are true, so each cell carries the product's other devices and vs_usual_pct."""
+    anchors = _heat()
+    beta = anchors.by_id["R4·mobile"]  # x_usual 2.0
+    text = "Beta Mug converts 0.64% on mobile vs 0.06% on desktop, 100% above its usual rate."
+    assert annotate.unmatched_numbers(text, beta, anchors.scope) == []
+    assert annotate.unmatched_numbers("Beta Mug is 3.1× its desktop rate.", beta, anchors.scope) == ["3.1"]
 
 
 def test_heatmap_anchors_are_capped_and_keep_strong_leans():
