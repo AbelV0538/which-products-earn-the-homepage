@@ -4,7 +4,7 @@
 
 *ITCS 5122 Visual Analytics · Team 9 · Account D · Pitch 1. Client: Head of Merchandising.*
 
-> **Status:** working app with 7 pages, running on real GA4 data pulled live from BigQuery plus real Google Trends data. There are 339 automated tests, all passing. See [What is still missing](#what-is-still-missing).
+> **Status:** working app with 7 pages, running on real GA4 data pulled live from BigQuery plus real Google Trends data. There are 366 automated tests, all passing, run on every push by GitHub Actions. See [What is still missing](#what-is-still-missing).
 
 ![Feature Picks page](docs/screenshots/feature_picks.png)
 
@@ -41,29 +41,30 @@ Without a key, the app shows a deterministic rule-based verdict built from the s
 
 | Page | Question from the pitch | Main view |
 |---|---|---|
-| **Feature Picks** | Q1: which products get lots of views but rarely sell? Q2: which convert well but stay hidden? | Quadrant bubble scatter: log product views × purchases per view, split into Hidden gems / Winners / Low priority / Wasted exposure. Adds a verdict card (rule-based or AI), ranked promote / retire / keep tables and a click-to-inspect product panel. |
+| **Feature Picks** | Q1: which products get lots of views but rarely sell? Q2: which convert well but stay hidden? | Quadrant bubble scatter: log product views × purchases per view (log or linear), split into Hidden gems / Winners / Low priority / Wasted exposure. Adds a verdict card (rule-based or AI), ranked promote / retire / keep tables with data-quality flags, and a click-to-inspect product panel with per-device bars. |
 | **Holiday Shift** | Q3: does the pattern shift during Black Friday / Cyber Monday? | Grouped bars of conversion by category, holiday window vs baseline, with 95% intervals. Adds daily conversion with shaded windows and the products that change quadrant. |
 | **Device Split** | Q4: does it differ by device? | Heatmap of top candidates × device. Each cell's colour compares the product on that device with its own usual rate; a mobile-first / desktop-first call sits beside it. |
 | **Outside Signal** | Phase 2b: "trending outside our walls" | Google search interest vs on-site views per category, both indexed to a baseline of 100, with alerts and promote-ahead lists. |
 | **Cannibalization Check** | Phase 2a: does featuring A steal sales from B? | Spike days in A's share of views, then whether same-category peers sold less than their nearby pace, with relative-risk intervals. |
-| **Slot Plan** | The decision | Black Friday / Cyber Monday / December slot cards with device lean, trend and cannibal flags; a retire list; CSV and Markdown export; an AI verdict for the plan. |
+| **Slot Plan** | The decision | Black Friday / Cyber Monday / December slot cards with an 80% range, how much of each score comes from the window itself, and device-lean, trend, cannibal and data-quality badges. A candidates chart shows how far ahead of the alternatives each pick is. Products can be pinned or excluded (e.g. out of stock). Also a retire list, CSV and Markdown export, and an AI verdict for the plan. |
 | **Data & Method** | Data abstraction (pitch slides 2 and 5) | Proof counts (CSV vs live BigQuery), cleaning steps with the real counts, category mapping, formulas, season windows, limits and all the SQL. |
 
-**Shared sidebar filters:** season presets, date range, device, category group and a minimum-views threshold. Charts and tables update live. Pages that compare fixed windows disable the filters they ignore.
+**Shared sidebar filters:** season presets, date range, device, category group and a minimum-views threshold. Charts and tables update live. Pages that compare fixed windows disable the filters they ignore. The filters are kept in the page URL (for example `?preset=cyber_week&dev=mobile&minv=500`), so a link reproduces the view.
 
 ## Key results on the real data
 
-Full season, all devices, minimum 200 product views:
+Full season (Nov 1 – Jan 25, the last day with product-level purchases), all devices, minimum 200 product views:
 
 - **Q2: promote these hidden gems.**
-  - Google Keychain: 68 purchases on 340 views, **20.0%** vs the 0.55% average.
-  - Google SF Campus Tote: 17.4%.
-  - Google Seattle Campus Mug: 13.7%.
+  - Google Keychain: 67 purchases on 324 views, **20.7%** vs the 0.57% average.
+  - Google Seattle Campus Mug: 14.5%.
+  - Google Austin Campus Mug: 13.8%.
   - Campus mugs and small gifts dominate this list.
   - These are low-volume products: treat them as candidates to test, not guaranteed winners.
+  - All five top gems carry the **"views under-counted"** flag: checkout events listing them reach at least half their product views (the store average is 1 per 35). Shoppers reach them without a product page, so their real conversion is lower than shown.
 - **Q1: retire these from the homepage.**
-  - Google Campus Bike Eco Tee Navy: **41,849 views at 0.10%**, about 186 purchases forgone.
-  - Then Android Large Removable Sticker Sheet, YouTube Women's Favorite Tee White, Google Navy Speckled Tee and Android Large Trace Journal Black.
+  - Google Campus Bike Eco Tee Navy: **41,040 views at 0.10%**, about 192 purchases forgone.
+  - Then YouTube Women's Favorite Tee White, Android Large Removable Sticker Sheet, Google Navy Speckled Tee and Google Tee Green.
 - **Q3: the holiday shift is real but uneven.**
   - Cyber Week converts at 0.79% vs 0.51% in the baseline.
   - Significant category lifts:
@@ -74,25 +75,28 @@ Full season, all devices, minimum 200 product views:
     - Office & Stationery: +29%
   - Electronics & Accessories shows no clear change.
 - **Q4: device doesn't change the picks.**
-  - Desktop and mobile both convert at 0.55% (tablet 0.48%).
+  - Desktop and mobile both convert at 0.57% (tablet 0.50%).
   - None of the top 20 candidates converts significantly better on one device, so one homepage line-up works for both.
 - **2b: trending outside our walls.**
   - Lifestyle & Gifts: Google interest rose **3.07×** from the baseline to the December push, 2.3× the momentum of the other categories.
   - Its on-site views grew only 1.24×.
   - So promote its best converters (Keychain, Lapel Pin, Google Bot, …) ahead of demand.
 - **2a: cannibalization.**
-  - No pair is flagged once each peer is compared with its pace on nearby days.
+  - No pair is "Likely cannibalized" once each peer is compared with its pace on nearby days.
+  - Two pairs are "Possible" (p < 0.05, but q = 0.29 after the multiple-testing correction): Android Iconic Pin with Google Sunglasses, and with Noogler Android Figure. Neither product is in the slot plan.
   - A first version flagged several pairs, but the review showed those were seasonal artifacts.
   - Most pairs have too little data to test.
-- **The slot plan:**
+- **The slot plan** (default 4 slots per campaign):
 
   | Campaign | Picks |
   |---|---|
-  | Black Friday | Google SF Campus Tote, Google Keychain, Google Austin Campus Mug |
-  | Cyber Monday | Google Lapel Pin, Google PNW Campus Mug, Google Seattle Campus Mug |
-  | December gifting | Google Magnet, Google Chicago Campus Mug, Google Bot |
+  | Black Friday | Google Keychain, Google Austin Campus Mug, Google LA Campus Unisex Tee, Google Seattle Campus Mug |
+  | Cyber Monday | Google Lapel Pin, Google PNW Campus Mug, Google LA Campus Mug, Google Chicago Campus Mug |
+  | December gifting | Google Magnet, Google Bot, Google Pen Red, Google Maps Pin |
 
-  It is exported as CSV or Markdown from the Slot Plan page.
+  - Every Black Friday and Cyber Monday pick rests on 8–30 views inside its 2–4 day window, so those scores are mostly each product's full-season rate. The page marks them "Mostly season evidence" and shows an 80% range per slot.
+  - The December picks have 46–108 window views each, so the window itself carries about a third to a half of each score.
+  - It is exported as CSV or Markdown from the Slot Plan page.
 
 | Holiday Shift | Device Split |
 |---|---|
@@ -118,7 +122,7 @@ Full season, all devices, minimum 200 product views:
    - 8 legacy purchase-catalogue names are folded into their viewed product. For example, "Womens Google Striped LS" is "Google Women's Striped L/S" (`taxonomy.NAME_ALIASES`).
 2. **A `view_item` event lists about 12 different products, not just the one viewed.**
    - List position carries no signal. Of the products bought in a session, 88% had appeared in a `view_item` list earlier in that session, but only 29% ever in the first position.
-   - So a **product view = an appearance in a product-page view event**: 2.66M views across 420 products, about 0.55% pooled conversion.
+   - So a **product view = an appearance in a product-page view event**: 2.53M views across 420 products through Jan 25, about 0.57% pooled conversion.
    - That is the same scale as the pitch mock-up.
 3. **Purchases are de-duplicated by transaction id.** There are 5,692 purchase events, but only 4,451 distinct transactions: 335 duplicates and 906 events without an id. Revenue after de-duplication is $339k.
 4. **Add-to-cart was not tracked before Nov 25–26, 2020.** Only purchase ÷ view is compared across the season.
@@ -127,22 +131,30 @@ Full season, all devices, minimum 200 product views:
 
    | Window | Dates |
    |---|---|
+   | Full season | Nov 1 – Jan 25 |
    | Baseline | Nov 1–22 |
    | Cyber Week | Nov 23–30 |
    | Black Friday weekend | Nov 26–29 |
    | Cyber Monday | Nov 30–Dec 1 |
    | December gifting | Dec 2–18 |
-   | Alternative 4-week baseline | Jan 4–31 |
+   | January baseline (alternative) | Jan 4–25 |
+7. **Item-level purchases stop on Jan 26, 2021.**
+   - The site still records 19–69 purchase events a day through Jan 31, but the item-level purchases drop to 53, 12, 10, 16, 11 and 0.
+   - Through Jan 25, every day has at least 1.13 item rows per purchase event (an order lists about 2.7 products); from Jan 26 it is below 1.
+   - Counting those days would read them as days nobody bought anything. That pulled the full-season average down from 0.57% to 0.55% and moved 14 products between quadrants. It also made the old January baseline (Jan 4–31) read 0.39% conversion; on Jan 4–25 it is 0.47%.
+   - So every product-level number stops on Jan 25 (`config.ITEM_DATA_END`). Site-level counts (the proof query, the CSV cross-checks) still cover all 92 days. `verify_snapshots.py` checks that the cut sits exactly where the item data ends.
 
 ## Metrics
 
 | Metric | Definition |
 |---|---|
 | Conversion | purchases ÷ product views |
-| Efficiency score | Empirical-Bayes shrunk rate `(P + m·μ_category)/(V + m)`. `m` is estimated by method of moments (≈70 on the real data, floored at 100 for stability). An 80% interval gives each product a confidence call. |
+| Efficiency score | Empirical-Bayes shrunk rate `(P + m·μ_category)/(V + m)`. `m` is estimated by method of moments (≈66 on the real data, floored at 100 for stability). An 80% interval gives each product a confidence call. |
 | Quadrants | x split: high-traffic cutoff (median views of eligible products; p75 and p90 also available). y split: pooled conversion. |
 | Retire priority | Forgone purchases, `views × (average − adjusted rate)` |
 | Promote priority | Extra purchases per 1,000 extra views, assuming new viewers convert like current ones |
+| Campaign score (Slot Plan) | `(P_w + m·s·u)/(V_w + m)`: the window's own purchases blended with the full-season rate `s` times the category's window uplift `u`, with an 80% range. `V_w/(V_w + m)` is the share of the score that comes from the window; below one half the slot is marked "Mostly season evidence" |
+| Under-counted views flag | Checkout events listing the product ≥ half its product views. A warning only: it never changes a score |
 | Holiday shift | Wilson intervals and two-proportion tests per category; quadrant movers |
 | Device lean | Each product's conversion indexed to its device's baseline, with a binomial test (mobile vs desktop) |
 | Cannibalization | Peer-adjusted expected purchases on A's spike days vs **B's pace on nearby non-spike days (±7 days)**, using a conditional binomial test with Benjamini–Hochberg q-values |
@@ -162,12 +174,12 @@ python scripts/export_bigquery.py                      # item x day x device exp
 python scripts/build_site_aggregates.py --csv ga4_events_export.csv   # DuckDB, ~5 s
 python scripts/fetch_trends.py                         # Google Trends (cached per keyword)
 python scripts/build_snapshots.py                      # -> data/item_daily, product_dim, manifest
-python scripts/verify_snapshots.py                     # 17 hard checks against the pitch numbers
+python scripts/verify_snapshots.py                     # 18 checks (13 hard) against the pitch numbers
 ```
 
 Notes on these steps:
 - **Google Trends:** pytrends served all 13 keywords on 2026-10-20, while trendspy was rate-limited. Manually downloaded Trends CSVs in `data/trends_manual/` are the fallback.
-- **Verification:** `verify_snapshots.py` checks that the snapshots reproduce the pitch counts and the site conversion rates: 1.18% baseline, 1.85% Cyber Week, 1.70% December, 1.47% full season.
+- **Verification:** `verify_snapshots.py` checks that the snapshots reproduce the pitch counts and the site conversion rates: 1.18% baseline, 1.85% Cyber Week, 1.70% December, 1.47% over all 92 days. It also checks that item-level purchases end exactly on `config.ITEM_DATA_END`.
 
 ## Tests
 
@@ -179,8 +191,10 @@ python -m pytest -q
 The suite covers:
 - **Planted truths:** synthetic data with known hidden gems, wasted products, device leans, a cannibal pair and a trending category, which the metrics must recover.
 - **Unit tests** for every module.
-- **Real-data smoke tests.**
-- **Streamlit `AppTest` runs** of all 7 pages.
+- **Real-data smoke tests**, including the Jan 25 item-data cut.
+- **Streamlit `AppTest` runs** of all 7 pages, plus the URL filters and pinning / excluding products in the slot plan.
+
+GitHub Actions (`.github/workflows/tests.yml`) runs the same suite on every push and pull request.
 
 ## Project structure
 
@@ -213,22 +227,22 @@ docs/DESIGN.md         full design: contracts, SQL, formulas, page specs
 | Live AI verdict | ⏳ **Not yet run against the real OpenRouter API.** It is tested with a mocked stream (parsing, errors, fallbacks). Needs an `OPENROUTER_API_KEY` to check end to end. |
 | "Re-run proof query live" button (Data & Method) | ⏳ Only works on a machine with cached BigQuery credentials. It is disabled elsewhere and has not been clicked in the running app. |
 | Deployment | ⏳ Not deployed. The app is ready for Streamlit Community Cloud, since it runs from the committed snapshots, and the key can go in the Cloud app's secrets. |
-| Shareable filter URLs | ❌ Left out (`bind="query-params"` conflicted with the season presets), so links don't carry the sidebar filters. |
-| Product inspector | Partial. It shows stats, interval, device lean, a timeline and a "pin to slot plan" button, but not the per-device bars from the design. |
-| Slot Plan | It has cards and tables but no chart. |
 | `TEAM9.pdf` (original pitch deck) | Intentionally not committed. |
+
+Shareable filter URLs, the inspector's per-device bars and a Slot Plan chart, listed here earlier, are now done.
 
 ## Known limitations
 
 - **No placement history, inventory or margin data.** The app recommends candidates; it cannot prove featuring causes sales, and it optimises conversion, not profit.
 - **"Views" are appearances in product-page view lists** (about 12 products per event), because the obfuscated sample doesn't record the product actually viewed.
-  - Small products bought through other paths can show very high rates (e.g. Google Keychain: 68 purchases on 340 views).
-  - The shrinkage and the 80% interval guard against noise, not against this definition.
+  - Small products bought through other paths can show very high rates (e.g. Google Keychain: 67 purchases on 324 views, but 370 checkout events).
+  - The shrinkage and the 80% interval guard against noise, not against this definition. The "views under-counted" flag marks the products this most likely affects.
+- **Item-level purchases end on Jan 25, 2021** although the export runs to Jan 31, so product-level analysis stops there (see [What profiling the real data changed](#what-profiling-the-real-data-changed), item 7).
 - **The holiday windows are short** (Black Friday weekend is 4 days; Cyber Monday is 2). Slot scores lean on each product's full-season rate, adjusted by how its category moved in the window.
 - **Cannibalization flags are correlational.** Purchases cluster by day, so the p- and q-values are optimistic; treat a flag as a prompt to check.
 - **Google Trends values are normalised 0–100 per request.** Each keyword is compared only with itself.
 - **Generic gift keywords rise every December**, so alerts are benchmarked against the other categories.
-- **The pre-holiday baseline has only 22 days** (the data starts Nov 1). A January 4-week window is offered as the alternative.
+- **The pre-holiday baseline has only 22 days** (the data starts Nov 1). A January window of the same length (Jan 4–25) is offered as the alternative.
 - **The sample is obfuscated by Google.** Read relative patterns, not exact business totals.
 
 ## Existing analyses, and how this goes further

@@ -3,6 +3,10 @@
 ``load_snapshot`` is pure (no Streamlit). Everything else is cached per data version: cached
 functions take small hashable keys (version, Filters, strings) plus an ``_snap`` argument that
 Streamlit does not hash, so large DataFrames are never hashed.
+
+``Snapshot.item_daily`` stops at ``config.ITEM_DATA_END``: after that day the sample's purchase
+events carry no items, so keeping those rows would read as days with no sales.
+``Snapshot.item_daily_totals`` keeps every day's totals for the Data & Method evidence.
 """
 
 from __future__ import annotations
@@ -40,6 +44,7 @@ class Snapshot:
     keyword_map: pd.DataFrame | None
     version: str
     data_dir: Path = Path(".")
+    item_daily_totals: pd.DataFrame | None = None  # per day, before the ITEM_DATA_END cut
 
     @property
     def is_synthetic(self) -> bool:
@@ -77,14 +82,29 @@ def _keyword_map(data_dir: Path) -> pd.DataFrame | None:
     return km if len(km) else None
 
 
+def split_item_daily(item_daily: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(rows up to ``config.ITEM_DATA_END``, per-day totals of every row).
+
+    The totals (``event_date, views, checkouts, purchases``) cover the whole export so the gap
+    after the cut can still be shown.
+    """
+    dates = pd.to_datetime(item_daily["event_date"]).dt.normalize()
+    cols = [c for c in ("views", "checkouts", "purchases") if c in item_daily.columns]
+    totals = item_daily[cols].groupby(dates.rename("event_date")).sum().reset_index()
+    keep = (dates <= pd.Timestamp(config.ITEM_DATA_END)).to_numpy()
+    return item_daily.loc[keep].reset_index(drop=True), totals
+
+
 def load_snapshot(data_dir: Path) -> Snapshot:
     """Read and validate every snapshot in ``data_dir`` (pure; raises FileNotFoundError when a
-    required file is missing)."""
+    required file is missing). Item rows after ``config.ITEM_DATA_END`` are dropped."""
     data_dir = Path(data_dir)
     json = {name: contracts.read_json(data_dir / f"{name}.json", default={}) or {}
             for name in ("overview", "profile", "manifest", "bq_proof", "trends_meta")}
+    item_daily, item_totals = split_item_daily(contracts.read_snapshot(data_dir, "item_daily"))
     return Snapshot(
-        item_daily=contracts.read_snapshot(data_dir, "item_daily"),
+        item_daily=item_daily,
+        item_daily_totals=item_totals,
         product_dim=contracts.read_snapshot(data_dir, "product_dim"),
         site_daily=contracts.read_snapshot(data_dir, "site_daily"),
         site_funnel=contracts.read_snapshot(data_dir, "site_funnel", required=False),
@@ -212,6 +232,38 @@ def trending_alerts(snapshot: Snapshot, f: Filters, base: str = "baseline", focu
     return _alerts(snapshot.version, f, base, focus, snapshot)
 
 
+@st.cache_data(show_spinner=False, max_entries=32)
+def _holiday_shift(version: str, f: Filters, _snap: Snapshot) -> pd.DataFrame:
+    keys = ("baseline", *dict.fromkeys(config.CAMPAIGNS.values()))
+    periods = [config.PERIODS[k] for k in keys]
+    frames = [metrics.period_comparison(_snap.item_daily, _snap.product_dim, periods, f, by=by)
+              for by in (None, "category_group")]
+    return pd.concat([fr for fr in frames if len(fr)] or frames[:1], ignore_index=True)
+
+
+def holiday_shift(snapshot: Snapshot, f: Filters) -> pd.DataFrame:
+    """Conversion in each campaign window vs the pre-holiday baseline, site-wide ("All products")
+    and per category (``metrics.period_comparison`` rows; the dates of ``f`` are ignored)."""
+    return _holiday_shift(snapshot.version, season_filters(f), snapshot)
+
+
+def campaign_alerts(snapshot: Snapshot, f: Filters) -> pd.DataFrame | None:
+    """Trend alerts for each campaign's Trends window vs the pre-holiday baseline, with
+    ``base_label`` / ``focus_label`` columns; None without Trends data."""
+    base = config.PERIODS["baseline"]
+    frames = []
+    for focus in dict.fromkeys(config.CAMPAIGN_TREND_FOCUS.values()):
+        alerts = trending_alerts(snapshot, f, base.key, focus)
+        if alerts is not None and len(alerts):
+            frames.append(alerts.assign(base_label=base.label, focus_label=config.PERIODS[focus].label))
+    return pd.concat(frames, ignore_index=True) if frames else None
+
+
+def verdict_context(snapshot: Snapshot, f: Filters) -> dict[str, pd.DataFrame | None]:
+    """The holiday-shift and Google-Trends inputs of ``narrative.build_payload``."""
+    return {"period_shift": holiday_shift(snapshot, f), "alerts": campaign_alerts(snapshot, f)}
+
+
 @st.cache_data(show_spinner=False, max_entries=128)
 def _product_daily(version: str, key: str, f: Filters, _snap: Snapshot) -> pd.DataFrame:
     return metrics.daily_totals(_snap.item_daily, _snap.product_dim, f, keys=[key], ignore_dates=True)
@@ -220,6 +272,16 @@ def _product_daily(version: str, key: str, f: Filters, _snap: Snapshot) -> pd.Da
 def product_daily(snapshot: Snapshot, key: str, f: Filters) -> pd.DataFrame:
     """One product's daily views and purchases over the full season (devices of ``f`` apply)."""
     return _product_daily(snapshot.version, key, f, snapshot)
+
+
+@st.cache_data(show_spinner=False, max_entries=128)
+def _product_devices(version: str, key: str, f: Filters, _snap: Snapshot) -> pd.DataFrame:
+    return metrics.device_matrix(_snap.item_daily, _snap.product_dim, [key], f, shrinkage_m(_snap))
+
+
+def product_devices(snapshot: Snapshot, key: str, f: Filters) -> pd.DataFrame:
+    """One product's ``metrics.device_matrix`` rows (one per device; the device filter is ignored)."""
+    return _product_devices(snapshot.version, key, f, snapshot)
 
 
 def name_of(snapshot: Snapshot, key: Any) -> str:

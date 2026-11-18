@@ -53,7 +53,8 @@ for r in summary.itertuples():
     tiles.append({
         "label": DEVICE_LABELS.get(str(r.device), str(r.device).title()), "value": f"{ui.pct(r.cr)} conversion",
         "delta": f"{100 * r.views_share:.0f}% of views · {100 * r.purchases_share:.0f}% of purchases",
-        "delta_color": "off", "help": f"{int(r.views):,} product views, {int(r.purchases):,} purchases.",
+        "delta_color": "off", "delta_arrow": "off",
+        "help": f"{int(r.views):,} product views, {int(r.purchases):,} purchases.",
     })
 ui.kpi_row(tiles)
 
@@ -89,7 +90,8 @@ ui.chart_with_table(
     charts.device_heatmap(matrix, lean), heat_table.round(3), key=f"{P}heat", file_name="device_split_heatmap.csv",
     caption="Cell text is the product's conversion on that device; colour compares it with the product's own usual "
             "rate across devices: navy = converts better on this device, coral = worse, gray = as usual. "
-            "Tablet is faded (low volume). The right-hand column is the mobile-vs-desktop lean.",
+            f"Tablet is faded (low volume) and shows \"–\" under {charts.LOW_VOLUME_MIN_VIEWS} views. A lean column "
+            "appears on the right only when some product converts clearly better on one device.",
 )
 
 names = matrix.drop_duplicates("product_key").set_index("product_key")["item_name"].astype(str)

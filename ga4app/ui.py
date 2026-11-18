@@ -47,13 +47,14 @@ def header(title: str, subtitle: str, questions: Sequence[str] = ()) -> None:
 
 
 def kpi_row(items: Sequence[Mapping[str, Any]]) -> None:
-    """One row of st.metric tiles. Each item: label, value, optional delta, delta_color, help."""
+    """One row of st.metric tiles. Each item: label, value, optional delta, delta_color,
+    delta_arrow ("off" for a delta that is context, not a change) and help."""
     if not items:
         return
     for col, item in zip(st.columns(len(items)), items):
         col.metric(
             item["label"], item["value"], delta=item.get("delta"), delta_color=item.get("delta_color", "normal"),
-            help=item.get("help"), border=True,
+            delta_arrow=item.get("delta_arrow", "auto"), help=item.get("help"), border=True,
         )
 
 
@@ -65,10 +66,13 @@ def chart_with_table(
     fig, df: pd.DataFrame | None, *, key: str, caption: str | None = None, on_select: Callable | None = None,
     file_name: str | None = None,
 ):
-    """The Plotly chart plus a "Show data" expander with the same rows and a CSV download."""
+    """The Plotly chart plus a "Show data" expander with the same rows and a CSV download.
+    The caption doubles as the chart's accessible description."""
     kwargs: dict[str, Any] = {}
     if on_select is not None:
         kwargs = {"on_select": on_select, "selection_mode": "points"}
+    if caption:
+        kwargs["alt"] = caption
     event = st.plotly_chart(fig, theme=None, width="stretch", key=key, config=PLOTLY_CONFIG, **kwargs)
     if caption:
         st.caption(esc(caption))
@@ -204,16 +208,35 @@ def product_inspector(snapshot: data.Snapshot, f: Filters, key: str | None) -> N
         )
         if bool(r.get("purchases_exceed_views")):
             st.warning("Data check: this product has more purchases than views (likely a tracking gap).")
+        if bool(r.get("views_undercount")):
+            st.warning(undercount_note(r))
         lean = data.device_lean(snapshot, (key,), f)
-        if len(lean):
-            st.caption(f"Device lean: **{esc(lean.iloc[0]['lean'])}**")
+        lean_txt = f" · lean: **{esc(lean.iloc[0]['lean'])}**" if len(lean) else ""
+        st.caption(f"Conversion by device (ticks = each device's store average){lean_txt}")
+        devices = data.product_devices(snapshot, key, f)
+        st.plotly_chart(charts.device_bars(devices), theme=None, width="stretch", key=f"inspect_devices_{key}",
+                        config=PLOTLY_CONFIG, alt="This product's conversion on each device next to the device average.")
         daily = data.product_daily(snapshot, key, f)
         fig = charts.product_timeline(daily, ["cyber_week", "december"], height=300)
-        st.plotly_chart(fig, theme=None, width="stretch", key=f"inspect_timeline_{key}", config=PLOTLY_CONFIG)
-        st.caption("Full season, shaded: Cyber Week and the December gifting push.")
+        st.plotly_chart(fig, theme=None, width="stretch", key=f"inspect_timeline_{key}", config=PLOTLY_CONFIG,
+                        alt="Daily product views and purchases across the season.")
+        st.caption(f"Full season, shaded: Cyber Week and the December gifting push. Grey: after "
+                   f"{config.ITEM_DATA_END:%b %d} the sample records no item-level purchases.")
         pinned = key in (st.session_state.get(state.PINNED) or [])
-        st.button("Added to slot plan shortlist" if pinned else "Add to slot plan shortlist", key="inspect_pin",
-                  on_click=_pin, args=(key,), disabled=pinned, width="stretch")
+        st.button("Added to slot plan" if pinned else "Add to slot plan", key="inspect_pin", on_click=_pin,
+                  args=(key,), disabled=pinned, width="stretch",
+                  help="Pins the product: the Slot Plan gives it a slot in the campaign where it scores best.")
+
+
+def undercount_note(row: Mapping[str, Any]) -> str:
+    """Why a ``views_undercount`` product's conversion is probably overstated."""
+    views, checkouts = int(row.get("views") or 0), int(row.get("checkouts") or 0)
+    return (
+        f"Data check: {checkouts:,} checkout events list this product against only {views:,} product views "
+        "(the store average is about 1 checkout per 35 views). Shoppers mostly reached it without a product "
+        "page, so its views are probably under-counted and its conversion overstated. Treat its rank as an "
+        "upper bound; checkout tracking is itself noisy, so this is a flag, not a correction."
+    )
 
 
 def caveat_note() -> None:

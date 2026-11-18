@@ -24,7 +24,7 @@ import pandas as pd
 from . import config, llm
 from .types import Caveats, Filters, Thresholds
 
-PROMPT_VERSION = "verdict-2026-10-20.1"
+PROMPT_VERSION = "verdict-2026-11-17.1"
 DEFAULT_CAVEATS: tuple[str, ...] = tuple(Caveats().items)
 
 FEATURE_COUNT = 3  # products named in the verdict's "Feature" clause
@@ -36,6 +36,7 @@ SHIFT_ALPHA = 0.05  # holiday-shift lifts reported only below this p-value
 MAX_SHIFTS = 6
 MAX_ALERTS = 3
 MAX_PAIRS = 4
+PLAN_FOLLOWERS = 2  # slots after slot 1 named in a rule-based plan bullet
 VIEW_DEFINITION = (
     "a product view = the product appeared in a product-page view event; "
     "the GA4 sample lists about 12 products per page view"
@@ -62,8 +63,10 @@ raw traffic.
 Grounding
 - Use ONLY the JSON in the user message. Never invent products, numbers, causes, stock levels \
 or margins.
-- Follow every product name with its code in square brackets, for example "Google Tee [G1]". \
-Cite only codes that appear in the JSON; never put any other text in square brackets.
+- Follow every product name that has a code with that code in square brackets, for example \
+"Google Tee [G1]". Products without a code (possible in slot_plan and promote_ahead) are named \
+without brackets. Cite only codes that appear in the JSON; never put any other text in square \
+brackets.
 
 Definitions
 - Conversion = purchases / product views. A "product view" means the product appeared in a \
@@ -71,25 +74,46 @@ product-page view event: the GA4 sample lists about 12 products per page view, s
 low (under 1% on average). Write percentages with 1-2 decimals.
 - adjusted_conversion_pct is the shrunk (empirical-Bayes) rate used for ranking; vs_avg is it \
 divided by scope.avg_conversion_pct.
+- holiday_shift: statistically significant (p < 0.05) changes in conversion in a holiday window \
+(focus) against the pre-holiday baseline (base), site-wide ("All products") or per category; \
+lift_pct is the relative change.
+- outside_signal: groups whose Google search interest (Google Trends) grew much faster from base \
+to focus than their on-site views (google_change_pct vs site_views_change_pct); promote_ahead \
+lists products to feature before that demand arrives.
+- slot_plan: the planned homepage slots per campaign, slot 1 first. per_1k_views is the \
+expected purchases per 1,000 views in that campaign's window and x_window_avg is that rate \
+divided by the window's average. window_views counts the product's views inside the window; \
+season_based: true means fewer window views than the shrinkage strength, so the score is mostly \
+the product's full-season rate - say so for lead slots that carry it.
+- views_undercount: true (on a product or a slot) means checkout events listing the product reach \
+at least half its product views, so its views look incomplete and its conversion is probably \
+overstated. Name such picks in Watch-outs as ones to confirm before a lead slot.
 
 Logic
 - Feature = Hidden gems and Winners with the highest adjusted conversion; recommended.feature \
 lists them in order. Retire = Wasted exposure with the most forgone purchases; \
 recommended.retire lists them. If recommended.retire is empty, say no product clearly wastes \
 exposure.
+- If slot_plan is present, the reader is reviewing that plan: the Verdict line names each \
+campaign's slot-1 product instead of recommended.feature, keeps the Retire clause, and the \
+bullets explain the plan with its numbers.
 - Mention a device lean only for products whose device_lean is Mobile-first or Desktop-first.
 - Mention holiday_shift, outside_signal (Google Trends) and cannibalization only if those \
-keys are present.
+keys are present, and connect them to the picks where they apply.
 - If fewer than 3 feature candidates qualify (scope.evidence is "thin"), say the evidence is \
 thin and suggest lowering min views.
 
 Format
 - First line, in this style: **Verdict:** Feature A [G1], B [W2] and C [G3]. Retire X [X1] \
 from the homepage - it drives views but almost no purchases.
+- With slot_plan, in this style: **Verdict:** Run the plan: lead Black Friday with A [G1], \
+Cyber Monday with B and December gifting with C [W2]. Retire X [X1] from the homepage - it \
+drives views but almost no purchases.
 - Then 3-5 short "- " bullets with numbers from the JSON explaining why.
-- Then one line starting with "Watch-outs:" drawn from caveats.
+- Then one line starting with "Watch-outs:" drawn from caveats and any views_undercount picks.
 - At most 170 words. Plain markdown only: no headings, tables, LaTeX or emoji."""
 
+UNDERCOUNT_NAMES = 3  # picks named in the Watch-outs clause about under-counted views
 _WATCH_OUTS = (
     "Watch-outs: candidates, not proof that featuring causes sales (no homepage-placement history); "
     "no inventory or margin data, so confirm stock before assigning a slot."
@@ -183,18 +207,22 @@ def build_payload(
     cannibal: pd.DataFrame | None = None,
     top_n: int = config.TOP_N_CODES,
     device_summary: pd.DataFrame | None = None,
+    slot_plan: pd.DataFrame | None = None,
 ) -> dict:
     """Compact, rounded JSON for the narrator (and the rule-based verdict).
 
     ``products`` is the scored table (``metrics.compute_products``); only rows with a code are
     sent, ``top_n`` per quadrant. Optional inputs: ``period_shift`` (``metrics.period_comparison``,
-    first window = base), ``device_lean`` (``metrics.device_lean``), ``alerts``
-    (``phase2.trending_alerts``), ``cannibal`` (``phase2.cannibalization_tests``) and
-    ``device_summary`` (``metrics.device_summary``). Absent or empty inputs leave their key out.
+    first window = base; ``data.holiday_shift``), ``device_lean`` (``metrics.device_lean``),
+    ``alerts`` (``phase2.trending_alerts``, optionally with ``base_label`` / ``focus_label``
+    columns as from ``data.campaign_alerts``), ``cannibal`` (``phase2.cannibalization_tests``),
+    ``device_summary`` (``metrics.device_summary``) and ``slot_plan`` (``metrics.slot_plan``).
+    Absent or empty inputs leave their key out.
     """
     p_bar = _num(th.conversion) or 0.0
     leans = _lean_lookup(device_lean)
     refs = _product_refs(products)
+    undercount = _flagged_keys(products, "views_undercount")
 
     payload: dict[str, Any] = {"prompt_version": PROMPT_VERSION}
     sections: dict[str, list[dict]] = {}
@@ -242,6 +270,7 @@ def build_payload(
         "device": _device_section(device_summary),
         "outside_signal": _alert_section(alerts, refs),
         "cannibalization": _cannibal_section(cannibal, refs),
+        "slot_plan": _slot_plan_section(slot_plan, refs, undercount),
     }
     payload.update({k: v for k, v in optional.items() if v})
     payload["caveats"] = list(DEFAULT_CAVEATS)
@@ -275,6 +304,8 @@ def _entry(row: Mapping[str, Any], quadrant: str, p_bar: float, leans: Mapping[s
         "confidence": _text(row.get("confidence")) or "uncertain",
         "revenue_usd": _int(row.get("revenue_usd")),
     }
+    if _flag(row.get("views_undercount")):
+        entry["views_undercount"] = True
     if quadrant == "Wasted exposure":
         entry["forgone_purchases"] = _round(row.get("forgone_purchases"), 1)
         entry["views_share_pct"] = _round(100.0 * (_num(row.get("views_share")) or 0.0), 1)
@@ -288,6 +319,22 @@ def _entry(row: Mapping[str, Any], quadrant: str, p_bar: float, leans: Mapping[s
         if rr is not None:
             entry["mobile_vs_desktop_x"] = rr
     return entry
+
+
+def _flag(value: Any) -> bool:
+    """A boolean cell (NaN, None and strings like "False" count as False)."""
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    try:
+        return bool(value) and not pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+
+
+def _flagged_keys(products: pd.DataFrame, column: str) -> set[str]:
+    if column not in products.columns or "product_key" not in products.columns:
+        return set()
+    return {_text(k) for k, v in zip(products["product_key"], products[column]) if _flag(v)}
 
 
 def _lean_lookup(device_lean: pd.DataFrame | None) -> dict[str, tuple[str, Any]]:
@@ -396,6 +443,9 @@ def _alert_section(alerts: pd.DataFrame | None, refs: Mapping[str, dict]) -> lis
             "google_change_pct": None if m_ext is None else round(100.0 * (m_ext - 1.0)),
             "site_views_change_pct": None if m_site is None else round(100.0 * (m_site - 1.0)),
         }
+        base, focus = _text(r.get("base_label")), _text(r.get("focus_label"))
+        if base and focus:
+            item["base"], item["focus"] = base, focus
         if promote:
             item["promote_ahead"] = promote
         rows.append(item)
@@ -429,12 +479,54 @@ def _cannibal_section(cannibal: pd.DataFrame | None, refs: Mapping[str, dict]) -
     return rows[:MAX_PAIRS] or None
 
 
+def _slot_plan_section(
+    plan: pd.DataFrame | None, refs: Mapping[str, dict], undercount: set[str] | frozenset[str] = frozenset()
+) -> list[dict] | None:
+    """Campaigns in ``config.CAMPAIGNS`` order, each with its window and its slots (slot 1 first).
+    Slots carry ``window_views`` / ``season_based`` when the plan has ``views_w`` / ``thin_window``,
+    and ``views_undercount`` for products in ``undercount``."""
+    df = _frame(plan, ("campaign", "slot", "product_key", "score_per_1k"))
+    if df is None:
+        return None
+    campaigns = df["campaign"].map(_text)
+    out = []
+    for campaign in dict.fromkeys([*config.CAMPAIGNS, *campaigns]):
+        rows = df[campaigns == campaign]
+        if rows.empty:
+            continue
+        group: dict[str, Any] = {"campaign": campaign}
+        period = config.PERIODS.get(config.CAMPAIGNS.get(campaign, ""))
+        if period is not None:
+            group["window"] = period.short()
+            group["days"] = (period.end - period.start).days + 1
+        slots = []
+        for r in rows.sort_values("slot").to_dict("records"):
+            item: dict[str, Any] = {"slot": _int(r.get("slot")), **_ref(refs, r.get("product_key"), r.get("item_name"))}
+            item["per_1k_views"] = _round(r.get("score_per_1k"), 2)
+            vs = _num(r.get("vs_avg"))
+            if vs is not None:
+                item["x_window_avg"] = round(1.0 + vs, 1)
+            if _num(r.get("views_w")) is not None:
+                item["window_views"] = _int(r.get("views_w"))
+            if _flag(r.get("thin_window")):
+                item["season_based"] = True
+            if _text(r.get("product_key")) in undercount:
+                item["views_undercount"] = True
+            slots.append(item)
+        group["slots"] = slots
+        out.append(group)
+    return out or None
+
+
 def build_messages(payload: Mapping[str, Any]) -> list[dict]:
     """System prompt plus the payload as compact JSON."""
     data = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str)
+    ask = "Write the verdict on this homepage slot plan." if payload.get("slot_plan") else (
+        "Write the homepage verdict for this scope."
+    )
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": "Write the homepage verdict for this scope. JSON:\n" + data},
+        {"role": "user", "content": f"{ask} JSON:\n{data}"},
     ]
 
 
@@ -583,6 +675,8 @@ def _trend_bullet(payload: Mapping[str, Any]) -> str | None:
     google = _num(a.get("google_change_pct"))
     site = _num(a.get("site_views_change_pct"))
     text = f"- Outside signal: Google interest in {a.get('group')} is up {_fmt_num(google)}%"
+    if a.get("focus"):
+        text += f" in {a['focus']}"
     if site is not None:
         text += f" while on-site views moved {site:+.0f}%"
     promote = [_cite(p) for p in a.get("promote_ahead") or []]
@@ -617,28 +711,71 @@ def _shift_bullet(payload: Mapping[str, Any]) -> str | None:
     )
 
 
+def _plan_leads(payload: Mapping[str, Any]) -> list[tuple[str, list[Mapping[str, Any]]]]:
+    """(campaign, slots) for each campaign of ``slot_plan`` that has at least one slot."""
+    out = []
+    for group in payload.get("slot_plan") or []:
+        if not isinstance(group, Mapping):
+            continue
+        slots = [s for s in group.get("slots") or [] if isinstance(s, Mapping)]
+        if group.get("campaign") and slots:
+            out.append((str(group["campaign"]), slots))
+    return out
+
+
+def _times(x: float) -> str:
+    return f"{x:.1f}x" if x < 10 else f"{x:.0f}x"
+
+
+def _plan_bullet(campaign: str, slots: Sequence[Mapping[str, Any]]) -> str:
+    lead = slots[0]
+    text = f"- {campaign}: {_cite(lead)} leads at {_fmt_num(lead.get('per_1k_views'), 1)} purchases per 1,000 views"
+    x = _num(lead.get("x_window_avg"))
+    if x is not None:
+        text += f" ({_times(x)} the window average)"
+    if lead.get("season_based") and lead.get("window_views") is not None:
+        text += f" on just {_fmt_num(lead.get('window_views'))} window views, so mostly its full-season rate"
+    rest = [_cite(s) for s in slots[1 : 1 + PLAN_FOLLOWERS]]
+    return text + (f", then {_join(rest)}." if rest else ".")
+
+
 def rule_based_verdict(payload: Mapping[str, Any]) -> str:
-    """Deterministic verdict in the narrator's format, citing only payload codes. Already ``md_safe``."""
+    """Deterministic verdict in the narrator's format, citing only payload codes. Already ``md_safe``.
+
+    With a ``slot_plan`` it summarises the plan (each campaign's lead slot) instead of the picks.
+    """
     scope = payload.get("scope") or {}
     entries = _entries_by_code(payload)
     feature, retire = _recommended(payload, entries)
     feats = [entries[c] for c in feature]
+    leads = _plan_leads(payload)
     avg = _fmt_pct(scope.get("avg_conversion_pct"))
     min_views = _fmt_num(scope.get("min_views"))
 
-    if len(feats) >= FEATURE_COUNT:
-        head = f"**Verdict:** Feature {_join([_cite(e) for e in feats])}."
-    elif feats:
-        word = "product qualifies" if len(feats) == 1 else "products qualify"
-        head = (
-            f"**Verdict:** The evidence is thin: only {len(feats)} {word} to feature. Feature "
-            f"{_join([_cite(e) for e in feats])} for now, and lower min views (now {min_views}) to widen the pool."
-        )
+    if leads:
+        head = "**Verdict:** Run the plan: lead " + _join([f"{c} with {_cite(s[0])}" for c, s in leads]) + "."
+        primary = [_plan_bullet(c, s) for c, s in leads]
+        picks = [entries[s[0]["code"]] for _, s in leads if s[0].get("code") in entries]
+        flagged = [s[0] for _, s in leads if s[0].get("views_undercount")]
+        keep = len(primary)  # one bullet per campaign
     else:
-        head = (
-            f"**Verdict:** The evidence is thin: no product qualifies to feature at {min_views}+ views. "
-            "Lower min views or widen the date range."
-        )
+        if len(feats) >= FEATURE_COUNT:
+            head = f"**Verdict:** Feature {_join([_cite(e) for e in feats])}."
+        elif feats:
+            word = "product qualifies" if len(feats) == 1 else "products qualify"
+            head = (
+                f"**Verdict:** The evidence is thin: only {len(feats)} {word} to feature. Feature "
+                f"{_join([_cite(e) for e in feats])} for now, and lower min views (now {min_views}) to widen the pool."
+            )
+        else:
+            head = (
+                f"**Verdict:** The evidence is thin: no product qualifies to feature at {min_views}+ views. "
+                "Lower min views or widen the date range."
+            )
+        primary = [_feature_bullet(e) for e in feats]
+        picks = feats
+        flagged = [e for e in feats if e.get("views_undercount")]
+        keep = min(len(primary), 2)  # at least two feature bullets
     x = entries[retire[0]] if retire else None
     if x is not None:
         forgone = _num(x.get("forgone_purchases"))
@@ -650,15 +787,14 @@ def rule_based_verdict(payload: Mapping[str, Any]) -> str:
     else:
         head += " No product clearly wastes homepage exposure in this scope."
 
-    feature_bullets = [_feature_bullet(e) for e in feats]
     extras = [
         b
-        for b in (_cannibal_bullet(payload), _trend_bullet(payload), _device_bullet(feats), _shift_bullet(payload))
+        for b in (_cannibal_bullet(payload), _trend_bullet(payload), _device_bullet(picks), _shift_bullet(payload))
         if b
     ]
-    # Keep at least two feature bullets, then fill up to MAX_BULLETS with the signals.
-    extras = extras[: MAX_BULLETS - min(len(feature_bullets), 2)]
-    bullets = feature_bullets[: MAX_BULLETS - len(extras)] + extras
+    # Keep the protected primary bullets, then fill up to MAX_BULLETS with the signals.
+    extras = extras[: max(MAX_BULLETS - keep, 0)]
+    bullets = primary[: MAX_BULLETS - len(extras)] + extras
     if len(bullets) < 3 and x is not None and x.get("views_share_pct") is not None:
         bullets.append(
             f"- {_cite(x)} takes {_fmt_num(x.get('views_share_pct'), 1)}% of in-scope views at "
@@ -670,7 +806,19 @@ def rule_based_verdict(payload: Mapping[str, Any]) -> str:
             f"{avg} average conversion; the high-traffic line is {_fmt_num(scope.get('views_threshold'))} views "
             f"({scope.get('views_rule', 'median')})."
         )
-    return md_safe("\n".join([head, "", *bullets, "", _WATCH_OUTS]))
+    return md_safe("\n".join([head, "", *bullets, "", _watch_outs(flagged)]))
+
+
+def _watch_outs(flagged: Sequence[Mapping[str, Any]]) -> str:
+    """The standing caveats, plus the named picks whose views look under-counted."""
+    names = list(dict.fromkeys(_cite(e) for e in flagged))[:UNDERCOUNT_NAMES]
+    if not names:
+        return _WATCH_OUTS
+    verb = "has" if len(names) == 1 else "have"
+    return (
+        _WATCH_OUTS[:-1] + f"; {_join(names)} {verb} at least one checkout event for every two product views, so "
+        "the views look under-counted and the rate overstated - confirm before a lead slot."
+    )
 
 
 # --------------------------------------------------------------------------- streaming

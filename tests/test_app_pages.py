@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,7 @@ def test_slot_plan_page(monkeypatch, synthetic_dir):
     assert not at.exception, [e.value for e in at.exception]
     assert any(s.value == "Black Friday" for s in at.subheader)
     assert any(s.value == "Retire from the homepage" for s in at.subheader)
+    assert "**Verdict:** Run the plan: lead Black Friday with" in _markdown(at)  # the verdict is on the plan
 
 
 def test_device_pills_and_reset(monkeypatch, synthetic_dir):
@@ -72,7 +74,7 @@ def test_inspector_shows_product(monkeypatch, synthetic_dir, synthetic_truth):
     at.session_state["inspect_key"] = synthetic_truth["hidden_gems"][0]
     at.run()
     assert not at.exception
-    assert any(b.label.startswith("Add") for b in at.button)
+    assert any(b.label == "Add to slot plan" for b in at.button)
     assert any(m.label == "Adjusted conversion" for m in at.metric)
 
 
@@ -97,3 +99,58 @@ def test_real_data_smoke(monkeypatch, real_data_dir):
     assert not any("SYNTHETIC" in w.value for w in at.warning)
     at.switch_page("views/slot_plan.py").run()
     assert not at.exception, [e.value for e in at.exception]
+
+
+def test_url_seeds_the_filters_and_follows_changes(monkeypatch, synthetic_dir):
+    monkeypatch.setenv(config.DATA_DIR_ENV, str(synthetic_dir))
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.query_params.update({"preset": "cyber_week", "dev": ["mobile", "laptop"], "cat": "Bags", "minv": "500"})
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    p = config.PERIODS["cyber_week"]
+    assert tuple(at.session_state["dates"]) == (p.start, p.end)
+    assert list(at.session_state["dev"]) == ["mobile"]  # unknown values are ignored
+    assert list(at.session_state["cat"]) == ["Bags"] and at.session_state["minv"] == 500
+    assert at.query_params == {"preset": "cyber_week", "dev": "mobile", "cat": "Bags", "minv": "500"}
+    at.button(key="reset_filters").click().run()
+    assert not at.exception and at.query_params == {}  # defaults leave the URL clean
+
+
+def test_url_custom_range_is_clamped_to_the_item_data(monkeypatch, synthetic_dir):
+    monkeypatch.setenv(config.DATA_DIR_ENV, str(synthetic_dir))
+    at = AppTest.from_file(APP, default_timeout=120)
+    at.query_params.update({"start": "2021-01-10", "end": "2021-01-31", "minv": "7"})
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert tuple(at.session_state["dates"]) == (date(2021, 1, 10), config.ITEM_DATA_END)
+    assert at.session_state["preset"] is None and at.session_state["minv"] == config.DEFAULT_MIN_VIEWS
+
+
+def test_slot_plan_pins_and_exclusions(monkeypatch, synthetic_dir):
+    from ga4app import data
+
+    def card_names(at: AppTest) -> list[str]:
+        out = []
+        for m in at.markdown:
+            head, _, rest = m.value.partition(". ")
+            if head.startswith("**") and head[2:].isdigit() and rest.endswith("**"):
+                out.append(rest[:-2])
+        return out
+
+    at = _run(monkeypatch, synthetic_dir)
+    at.switch_page("views/slot_plan.py").run()
+    assert list(at.session_state["sp_include"]) == []
+    snap = data.load_snapshot(synthetic_dir)
+    key_of = dict(zip(snap.product_dim["item_name"].astype(str), snap.product_dim["product_key"].astype(str)))
+    lead = card_names(at)[0]  # Black Friday slot 1
+    totals = snap.item_daily.groupby("product_key", observed=True)[["views", "purchases"]].sum()
+    busy = totals[totals["views"] >= 1000]
+    weak = str((busy["purchases"] / busy["views"]).idxmin())  # a high-traffic, low-converting product
+    assert data.name_of(snap, weak) not in card_names(at)
+    at.session_state["sp_excluded"] = [key_of[lead]]
+    at.session_state["sp_pinned"] = [weak]
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert lead not in card_names(at)  # excluded
+    assert data.name_of(snap, weak) in card_names(at)  # pinned into a slot
+    assert list(at.session_state["sp_include"]) == [weak] and list(at.session_state["sp_exclude"]) == [key_of[lead]]

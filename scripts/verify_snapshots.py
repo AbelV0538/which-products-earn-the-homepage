@@ -30,8 +30,12 @@ from ga4app.contracts import (  # noqa: E402
 )
 
 EXPECTED_DAYS = (config.DATA_END - config.DATA_START).days + 1  # 92
-# Site purchase / view_item conversion (%) per period, from the CSV (DESIGN section 8).
-SITE_CONVERSION_PCT = {"baseline": 1.18, "cyber_week": 1.85, "december": 1.70, "full": 1.47}
+# Site purchase / view_item conversion (%) per period, from the CSV (DESIGN section 8). "export" is
+# all 92 days (the pitch's full-season 1.47%); the app's "full" season stops at ITEM_DATA_END.
+SITE_CONVERSION_PCT = {"baseline": 1.18, "cyber_week": 1.85, "december": 1.70, "export": 1.47}
+# Item-level purchase rows per site purchase event: an order lists ~2.7 products, so a day below
+# 1.0 has lost its item lists. config.ITEM_DATA_END must be the last day at or above it.
+ITEMS_PER_PURCHASE_MIN = 1.0
 SITE_CONVERSION_TOL_PP = 0.01
 PURCHASE_EVENTS = 5692
 VIEW_SUM_TOL = 0.005
@@ -97,6 +101,24 @@ def _site_conversion(site_daily: pd.DataFrame, key: str) -> float:
     return 100.0 * float(events.get("purchase", 0)) / views if views else float("nan")
 
 
+def _item_gap_check(item: pd.DataFrame | None, site: pd.DataFrame | None) -> Check:
+    """``config.ITEM_DATA_END`` sits exactly where item-level purchases stop: every day up to it has
+    at least ``ITEMS_PER_PURCHASE_MIN`` item purchase rows per site purchase event, every later day less."""
+    name = f"item purchases end on {config.ITEM_DATA_END:%b %d}"
+    if item is None or site is None:
+        return _hard(name, False, "not loaded")
+    items = item.groupby(pd.to_datetime(item["event_date"]).dt.normalize())["purchases"].sum()
+    buys = site[site["event_name"] == "purchase"]
+    events = buys.groupby(pd.to_datetime(buys["event_date"]).dt.normalize())["events"].sum()
+    ratio = (items.reindex(events.index).fillna(0) / events.where(events > 0)).dropna()
+    cut = pd.Timestamp(config.ITEM_DATA_END)
+    before, after = ratio[ratio.index <= cut], ratio[ratio.index > cut]
+    ok = len(before) > 0 and bool((before >= ITEMS_PER_PURCHASE_MIN).all()) and bool((after < ITEMS_PER_PURCHASE_MIN).all())
+    detail = (f"items per purchase event: min {before.min():.2f} through {cut:%b %d}"
+              + (f", max {after.max():.2f} after" if len(after) else ", no later days"))
+    return _hard(name, ok, detail)
+
+
 def run_checks(data_dir: Path) -> list[Check]:
     """Run every check against the snapshots in ``data_dir``."""
     frames, errors = _load(data_dir)
@@ -128,6 +150,7 @@ def run_checks(data_dir: Path) -> list[Check]:
     # ---- shape --------------------------------------------------------------------------
     checks.append(_dates_check("item_daily", item))
     checks.append(_dates_check("site_daily", site))
+    checks.append(_item_gap_check(item, site))
     devices: set[str] = set()
     for name in ("item_daily", "site_daily", "promo_daily", "site_funnel"):
         if frames.get(name) is not None:

@@ -91,7 +91,7 @@ _SUM_COLUMNS = (
     "revenue_usd",
 )
 # Always present on a product table (zero-filled when the input lacks them).
-_BASE_SUMS = ("views", "purchases", "units", "revenue_usd", "promo_views")
+_BASE_SUMS = ("views", "purchases", "units", "revenue_usd", "promo_views", "checkouts")
 _RULE_QUANTILES = {"median": 0.5, "p50": 0.5, "p75": 0.75, "p90": 0.9}
 _ONE_DAY = pd.Timedelta(days=1)
 
@@ -131,6 +131,10 @@ _SLOT_COLUMNS = (
     "purchases_w",
     "season_cr_adj",
     "uplift",
+    "ci_low",
+    "ci_high",
+    "window_weight",
+    "thin_window",
 )
 
 
@@ -399,8 +403,13 @@ def season_prior_strength_raw(item_daily: pd.DataFrame, product_dim: pd.DataFram
 
 
 def shrink(products: pd.DataFrame, m: float, *, interval: float = config.CONF_INTERVAL) -> pd.DataFrame:
-    """Add ``cr_raw``, ``prior_mean``, ``cr_adj``, ``ci_low``/``ci_high``, ``confidence`` and
-    ``purchases_exceed_views`` (plus the posterior parameters ``post_a``/``post_b``).
+    """Add ``cr_raw``, ``prior_mean``, ``cr_adj``, ``ci_low``/``ci_high``, ``confidence`` and the
+    data-quality flags ``purchases_exceed_views`` and ``views_undercount`` (plus the posterior
+    parameters ``post_a``/``post_b``).
+
+    ``views_undercount`` marks products whose checkout events reach ``config.UNDERCOUNT_RATIO``
+    of their product views: shoppers reached them without a product-page view, so ``V`` is
+    probably too small and ``cr_raw`` too high. It is a flag only; it never changes a score.
 
     ``confidence`` is "above" / "below" when the ``interval`` posterior interval lies entirely
     above / below the pooled rate ``p_bar`` of ``products``, else "uncertain".
@@ -428,6 +437,8 @@ def shrink(products: pd.DataFrame, m: float, *, interval: float = config.CONF_IN
     # No data at all: the interval is just the prior, which says nothing about this product.
     out["confidence"] = np.where(v_eff > 0, confidence, "uncertain")
     out["purchases_exceed_views"] = p > v
+    out["checkouts"] = _num(out, "checkouts").astype("int64")
+    out["views_undercount"] = (v > 0) & (out["checkouts"].to_numpy(dtype=float) >= config.UNDERCOUNT_RATIO * v)
     out["post_a"] = a
     out["post_b"] = b
     return out
@@ -1130,6 +1141,9 @@ def campaign_scores(
     ``mu_iw = s_i * u_cw``; ``score = (P_w + m*mu_iw) / (max(V_w, P_w) + m)``.
     Columns include ``score, score_per_1k, vs_avg`` (``score / window_avg - 1``), ``window_avg``,
     ``views_w, purchases_w, cr_raw_w, season_cr_adj, uplift, uplift_source, prior_w, forgone_w``,
+    ``ci_low / ci_high`` (the ``config.CONF_INTERVAL`` interval of the same Beta posterior),
+    ``window_weight`` (``V_w / (V_w + m)``: the share of the score that comes from the window's own
+    views) and ``thin_window`` (``window_weight < 0.5``: the score is mostly the season prior),
     ``eligible`` (season views >= ``f.min_views``) and ``rank`` (among eligible; 1 = best).
     The date range of ``f`` is ignored; its devices and categories apply. Products without
     season views are left out.
@@ -1169,8 +1183,16 @@ def campaign_scores(
     p_w = out["purchases_w"].to_numpy(dtype=float)
     prior = out["season_cr_adj"].to_numpy(dtype=float) * out["uplift"].to_numpy(dtype=float)
     score = (p_w + m * prior) / (np.maximum(v_w, p_w) + m) if m > 0 else np.where(v_w > 0, p_w / np.maximum(v_w, p_w), prior)
+    v_eff = np.maximum(v_w, p_w)
+    mu = np.clip(prior, 0.0, 1.0)
+    ci_low, ci_high = _beta_interval(p_w + m * mu, (v_eff - p_w) + m * (1.0 - mu), config.CONF_INTERVAL)
     with np.errstate(divide="ignore", invalid="ignore"):
         out["cr_raw_w"] = np.where(v_w > 0, p_w / v_w, np.nan)
+        weight = np.where(v_eff + m > 0, v_eff / (v_eff + m), 1.0)
+    out["ci_low"] = ci_low
+    out["ci_high"] = ci_high
+    out["window_weight"] = weight
+    out["thin_window"] = weight < 0.5
     out["prior_w"] = prior
     out["score"] = score
     out["score_per_1k"] = 1000.0 * score
@@ -1193,6 +1215,7 @@ def slot_plan(
     *,
     conflicts: Iterable[frozenset[str]] = frozenset(),
     exclude: Iterable[str] = frozenset(),
+    must_include: Iterable[str] = (),
     allow_repeats: bool = False,
 ) -> pd.DataFrame:
     """Greedy homepage plan: per campaign (``config.CAMPAIGNS`` order first), take the best
@@ -1201,6 +1224,13 @@ def slot_plan(
     ``allow_repeats``, products already picked for an earlier campaign. Only rows with
     ``eligible`` True are candidates when that column exists. A campaign missing from
     ``n_slots`` gets ``config.DEFAULT_SLOTS``.
+
+    ``must_include`` keys (pinned by the user, in order) are placed before the greedy fill, each
+    in the campaign where its ``score_per_1k`` is highest among campaigns with a free slot and no
+    conflicting pick; they need a score row but not ``eligible``. Keys that cannot be placed
+    (excluded, never scored, or no campaign has room) are listed in ``out.attrs["unplaced"]``.
+    Each campaign's picks are numbered by ``score_per_1k`` (slot 1 = best); ``pinned`` marks the
+    placements that came from ``must_include``.
     """
     partners: dict[str, set[str]] = {}
     for pair in conflicts:
@@ -1212,38 +1242,79 @@ def slot_plan(
         partners.setdefault(b, set()).add(a)
     excluded = {str(k) for k in exclude}
     order = [c for c in config.CAMPAIGNS if c in scores] + [c for c in scores if c not in config.CAMPAIGNS]
+    frames = {c: scores[c] for c in order if scores[c] is not None and len(scores[c])}
+    cap = {
+        c: int(n_slots) if isinstance(n_slots, (int, np.integer)) else int(n_slots.get(c, config.DEFAULT_SLOTS))
+        for c in order
+    }
+    records = {c: {str(r["product_key"]): r for r in frame.to_dict("records")} for c, frame in frames.items()}
+    picks: dict[str, list[str]] = {c: [] for c in order}
+    pinned: set[tuple[str, str]] = set()
     used: set[str] = set()
-    rows: list[dict[str, Any]] = []
+    unplaced: list[str] = []
+
+    def _value(rec: Mapping[str, Any], col: str, missing: float) -> float:
+        x = pd.to_numeric(rec.get(col), errors="coerce")
+        return float(x) if pd.notna(x) else missing
+
+    def _score(rec: Mapping[str, Any]) -> float:
+        return _value(rec, "score_per_1k", -np.inf)
+
+    for key in dict.fromkeys(str(k) for k in must_include):
+        options = [
+            (-_score(records[c][key]), i, c)
+            for i, c in enumerate(order)
+            if key not in excluded
+            and key in records.get(c, {})
+            and len(picks[c]) < cap[c]
+            and not partners.get(key, set()) & set(picks[c])
+        ]
+        if not options:
+            unplaced.append(key)
+            continue
+        best = min(options)[2]
+        picks[best].append(key)
+        pinned.add((best, key))
+        used.add(key)
+
     for campaign in order:
-        frame = scores[campaign]
-        n = int(n_slots) if isinstance(n_slots, (int, np.integer)) else int(n_slots.get(campaign, config.DEFAULT_SLOTS))
-        if frame is None or not len(frame) or n <= 0:
+        frame, n = frames.get(campaign), cap[campaign]
+        if frame is None or n <= 0:
             continue
         cand = frame
         if "eligible" in cand.columns:
             cand = cand[cand["eligible"].fillna(False).astype(bool)]
         sort_cols = [c for c in ("score_per_1k", "views_w") if c in cand.columns]
         cand = cand.sort_values([*sort_cols, "product_key"], ascending=[*([False] * len(sort_cols)), True], kind="mergesort")
-        picked: list[str] = []
-        for rec in cand.to_dict("records"):
-            key = str(rec["product_key"])
+        picked = picks[campaign]
+        for key in cand["product_key"].astype(str):
+            if len(picked) >= n:
+                break
             if key in excluded or key in picked or (not allow_repeats and key in used):
                 continue
             if partners.get(key, set()) & set(picked):
                 continue
             picked.append(key)
+        used.update(picked)
+
+    rows: list[dict[str, Any]] = []
+    for campaign in order:
+        recs = [records[campaign][k] for k in picks[campaign]]
+        recs.sort(key=lambda r: (-_score(r), -_value(r, "views_w", 0.0), str(r["product_key"])))
+        for slot, rec in enumerate(recs, start=1):
+            key = str(rec["product_key"])
             rows.append(
                 {
                     "campaign": campaign,
                     "campaign_key": rec.get("campaign_key") or config.CAMPAIGNS.get(campaign, ""),
-                    "slot": len(picked),
+                    "slot": slot,
                     "product_key": key,
                     **{c: rec.get(c, np.nan) for c in _SLOT_COLUMNS[4:]},
+                    "pinned": (campaign, key) in pinned,
                 }
             )
-            if len(picked) >= n:
-                break
-        used.update(picked)
-    out = pd.DataFrame(rows, columns=list(_SLOT_COLUMNS))
+    out = pd.DataFrame(rows, columns=[*_SLOT_COLUMNS, "pinned"])
     out["slot"] = out["slot"].astype("int64")
+    out["pinned"] = out["pinned"].astype(bool)
+    out.attrs["unplaced"] = unplaced
     return out

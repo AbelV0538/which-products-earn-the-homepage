@@ -175,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
     # Console cross-checks against the numbers verified while planning.
     print(f"events {event_count:,} | users {user_count:,} | days {day_count} | sessions {session_count:,}")
     tot = site_daily.pivot_table(index="event_date", columns="event_name", values="events", aggfunc="sum").fillna(0)
-    for key in ("baseline", "cyber_week", "december", "full"):
+    for key in ("baseline", "cyber_week", "december", "export"):  # export = all 92 days (the pitch's 1.47%)
         p = config.PERIODS[key]
         sl = tot.loc[str(p.start) : str(p.end)]
         conv = sl["purchase"].sum() / sl["view_item"].sum()

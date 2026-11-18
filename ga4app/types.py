@@ -10,10 +10,11 @@ from . import config
 
 @dataclass(frozen=True)
 class Filters:
-    """The sidebar scope. Empty ``devices`` / ``categories`` mean "all"."""
+    """The sidebar scope. Empty ``devices`` / ``categories`` mean "all". The default dates are the
+    analysis season (``config.PERIODS["full"]``, ending at ``config.ITEM_DATA_END``)."""
 
     start: date = config.DATA_START
-    end: date = config.DATA_END
+    end: date = config.ITEM_DATA_END
     devices: tuple[str, ...] = ()
     categories: tuple[str, ...] = ()
     min_views: int = config.DEFAULT_MIN_VIEWS
@@ -63,6 +64,8 @@ PRODUCT_COLUMNS: tuple[str, ...] = (
     "code",  # W1.., G1.., X1.. for the top-N per actionable quadrant, "" otherwise
     "views_share",  # share of in-scope views
     "purchases_exceed_views",  # data-quality flag
+    "checkouts",  # checkout events that list the product
+    "views_undercount",  # data-quality flag: checkouts >= config.UNDERCOUNT_RATIO * views
 )
 
 

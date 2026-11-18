@@ -76,6 +76,8 @@ def _products(seed: int = 3) -> pd.DataFrame:
             "code": "",
             "views_share": views / views.sum(),
             "purchases_exceed_views": False,
+            "checkouts": (views * 0.03).astype(int),
+            "views_undercount": False,
         }
     )
     for quad, prefix in config.QUADRANT_CODE_PREFIX.items():
@@ -246,10 +248,34 @@ def _all_figures() -> dict[str, go.Figure]:
         "heatmap": charts.device_heatmap(_device_matrix(), _lean()),
         "trends": charts.trends_small_multiples(_trend_index(), PERIODS),
         "spike": charts.spike_share(_spikes(), "alpha tee", ["cyber_week"]),
+        "scatter_log": charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP, y_scale="log"),
+        "slots": charts.slot_candidates(_slot_scores(), ["k0", "k14"]),
+        "device_bars": charts.device_bars(_device_matrix().query("product_key == 'alpha tee'")),
+        "daily_gap": charts.daily_conversion(_season_daily(), PERIODS),
         "rr": charts.rr_dotplot(_tests_frame()),
         "timeline": charts.product_timeline(_daily(), PERIODS),
         "empty": charts.empty_figure("nothing"),
     }
+
+
+def _slot_scores(n: int = 15) -> pd.DataFrame:
+    """A ``metrics.campaign_scores``-shaped frame; k1 is not eligible."""
+    score = np.linspace(0.2, 0.05, n)
+    views = np.linspace(5, 300, n).astype(int)
+    return pd.DataFrame(
+        {
+            "product_key": [f"k{i}" for i in range(n)], "item_name": [f"Item <{i}>" for i in range(n)],
+            "score": score, "score_per_1k": 1000 * score, "ci_low": 0.8 * score, "ci_high": 1.2 * score,
+            "views_w": views, "purchases_w": (views * score).astype(int), "window_avg": 0.007,
+            "window_weight": views / (views + 100.0), "eligible": [i != 1 for i in range(n)],
+        }
+    )
+
+
+def _season_daily() -> pd.DataFrame:
+    """Daily totals that stop exactly at config.ITEM_DATA_END (like the trimmed snapshot)."""
+    days = pd.date_range(config.DATA_START, config.ITEM_DATA_END)
+    return pd.DataFrame({"event_date": days, "views": 1000, "purchases": 5})
 
 
 def _js(fig: go.Figure) -> dict:
@@ -613,6 +639,10 @@ EMPTY = pd.DataFrame()
         lambda e: charts.rr_dotplot(_tests_frame().iloc[4:]),
         lambda e: charts.product_timeline(e, PERIODS),
         lambda e: charts.product_timeline(None, None),
+        lambda e: charts.slot_candidates(e),
+        lambda e: charts.slot_candidates(None, ["x"]),
+        lambda e: charts.device_bars(e),
+        lambda e: charts.device_bars(None),
     ],
 )
 def test_builders_handle_empty_frames(build):
@@ -627,3 +657,77 @@ def test_charts_source_rules():
     src = CHARTS_PY.read_text(encoding="utf-8")
     assert "use_container_width" not in src
     assert not re.search(r"^\s*(import|from)\s+streamlit", src, flags=re.M)
+
+
+# --------------------------------------------------------------------------- improvements
+
+
+def test_scatter_log_scale_keeps_top_converters_on_the_chart():
+    products = _products()
+    zero = products.index[products["eligible"] & (products.index > 0)][0]
+    products.loc[zero, ["purchases", "cr_raw", "cr_adj"]] = [0, 0.0, 0.002]
+    linear = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP)
+    log = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale="log")
+    assert any(a.name == "overflow" for a in linear.layout.annotations)  # linear clips product 00 (9%)
+    assert log.layout.yaxis.type == "log"
+    ann = {a.name: a for a in log.layout.annotations}
+    assert "overflow" not in ann and "no purchases" in ann["underflow"].text
+    assert ann["threshold:conversion"].y == pytest.approx(np.log10(TH.conversion))  # log10 for annotations
+    lo, hi = log.layout.yaxis.range
+    ys = np.concatenate([np.asarray(t.y, dtype=float) for t in log.data])
+    assert (ys > 0).all() and lo < np.log10(ys.min()) and np.log10(ys.max()) < hi
+    assert ys.max() == pytest.approx(products.loc[0, "cr_raw"])  # drawn at its real rate, not clipped
+    symbols = [s for t in log.data for s in t.marker.symbol]
+    assert "triangle-down" in symbols and "triangle-up" not in symbols
+    assert set(log.layout.yaxis.ticktext) <= {t for _, t in charts.LOG_RATE_TICKS}
+
+
+def test_slot_candidates_marks_picks_and_window_evidence():
+    fig = charts.slot_candidates(_slot_scores(), ["k0", "k14"], top=5)
+    traces = {t.name: t for t in fig.data}
+    assert set(traces) == {"Other candidates", "In the plan"}
+    # Top 5 eligible (k1 is not), plus k14: in the plan but outside the top, so it is still shown.
+    ticks = list(fig.layout.yaxis.ticktext)
+    assert ticks == ["Item &lt;0&gt;", "Item &lt;2&gt;", "Item &lt;3&gt;", "Item &lt;4&gt;", "Item &lt;5&gt;", "Item &lt;14&gt;"]
+    assert list(traces["In the plan"].y) == [0, 5]
+    assert np.asarray(traces["In the plan"].error_x.array) == pytest.approx(0.2 * np.asarray(traces["In the plan"].x))
+    views = [a.text for a in fig.layout.annotations if a.name == "window_views"]
+    assert len(views) == 6 and views[0] == "5 (mostly season)" and views[-1] == "300"
+    assert any(a.name == "window_avg" and a.text == "Window average 7.0 (off the axis, to the left)" for a in fig.layout.annotations)
+    assert fig.layout.xaxis.range[0] > 7  # zoomed to the candidates, not stretched down to the average
+
+
+def test_device_bars_one_bar_per_device_with_averages():
+    one = _device_matrix().query("product_key == 'alpha tee'")
+    bars, avg = charts.device_bars(one).data
+    assert list(bars.y) == ["Desktop", "Mobile", "Tablet"]
+    assert np.asarray(bars.x, dtype=float) == pytest.approx(one["cr_raw"].to_numpy())
+    assert np.asarray(avg.x, dtype=float) == pytest.approx([0.006, 0.004, 0.003])
+    assert bars.marker.opacity[-1] < 1 == bars.marker.opacity[0]  # tablet faded
+    sparse = one.assign(views=np.where(one["device"] == "tablet", 5, one["views"]))
+    assert charts.device_bars(sparse).data[0].text[-1] == "too few views"
+
+
+def test_heatmap_hides_sparse_tablet_cells_and_an_empty_lean_column():
+    m = _device_matrix()
+    m.loc[(m["device"] == "tablet") & (m["product_key"] == "alpha tee"), "views"] = 5
+    fig = charts.device_heatmap(m, _lean())
+    assert "–" in [a.text for a in fig.layout.annotations]
+    assert any(a.name == "lean" for a in fig.layout.annotations)  # strong leans keep the column
+    calm = charts.device_heatmap(_device_matrix(), _lean().assign(lean="Both"))
+    assert not any(a.name == "lean" for a in calm.layout.annotations) and calm.layout.margin.r < 100
+
+
+def test_item_gap_band_only_when_a_series_stops_at_the_cut():
+    fig = charts.daily_conversion(_season_daily(), ["cyber_week"])
+    gap = [s for s in fig.layout.shapes if s.name == "item_gap"]
+    assert len(gap) == 1 and pd.Timestamp(gap[0].x1) > pd.Timestamp(config.DATA_END)
+    assert pd.Timestamp(fig.layout.xaxis.range[1]) > pd.Timestamp(config.DATA_END)
+    assert not [s for s in charts.daily_conversion(_daily(), ["cyber_week"]).layout.shapes if s.name == "item_gap"]
+    timeline = charts.product_timeline(_season_daily(), PERIODS)
+    assert len([s for s in timeline.layout.shapes if s.name == "item_gap"]) == 2  # both panels
+
+
+def test_short_label():
+    assert charts.short_label("december") == "Dec push" and charts.short_label("january_4wk") == "Jan baseline"
+    assert charts.short_label("post_cutoff") == "After cutoff" and charts.short_label("nope") == "nope"

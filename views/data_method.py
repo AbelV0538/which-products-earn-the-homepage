@@ -68,8 +68,9 @@ overview, proof, profile, manifest = snapshot.overview, snapshot.bq_proof, snaps
 
 ui.header(
     "Data & Method",
-    "Where every number comes from: the Google Merchandise Store GA4 sample (Nov 1, 2020 – Jan 31, 2021), "
-    "how it was cleaned, how the scores are computed, and what the data cannot tell us.",
+    "Where every number comes from: the Google Merchandise Store GA4 sample (Nov 1, 2020 – Jan 31, 2021; "
+    f"product-level analysis through {config.ITEM_DATA_END:%b %d, %Y}), how it was cleaned, how the scores are "
+    "computed, and what the data cannot tell us.",
     ("Q1", "Q2", "Q3", "Q4"),
 )
 
@@ -193,9 +194,6 @@ st.markdown(
 st.markdown(
     "**6. Add-to-cart is not a cart count.** add_to_cart events also list about 11 products each, and cart tracking "
     f"only becomes reliable from {config.CART_TRACKING_START:%b %d}. Carts are left out of the scores."
-    if hasattr(config, "CART_TRACKING_START") else
-    "**6. Add-to-cart is not a cart count.** add_to_cart events also list about 11 products each, and cart tracking "
-    "only becomes reliable from late November. Carts are left out of the scores."
 )
 
 gaps = overview.get("tracking_gaps", {}) or {}
@@ -217,6 +215,33 @@ if gaps:
     ui.data_table(pd.DataFrame([{"Event": k, "Median per day": v.get("median_daily"), "Gap days": v.get("gap_days"),
                                  "First reliable date": v.get("first_reliable_date")} for k, v in gaps.items()]),
                   key=f"{P}gap_table")
+
+# 7. The item-level gap at the end of the export.
+cut = pd.Timestamp(config.ITEM_DATA_END)
+st.markdown(
+    f"**7. Product-level analysis stops on {cut:%b %d}.** From {cut + pd.Timedelta(days=1):%b %d} the sample's purchase events stop listing "
+    "their products: the site still records 19–69 purchase events a day, but item-level purchases fall to almost "
+    f"none. Every product score, window and chart therefore ends on {cut:%b %d}, so those days are not read as days "
+    "when nothing sold. Site-level counts (the proof query, the tracking-gap chart) still cover all 92 days."
+)
+totals = snapshot.item_daily_totals
+if totals is not None and len(totals) and site is not None and len(site) and {"event_name", "events"} <= set(site.columns):
+    site_buys = (site[site["event_name"] == "purchase"].assign(event_date=lambda d: pd.to_datetime(d["event_date"]))
+                 .groupby("event_date")["events"].sum())
+    tail = totals.assign(event_date=pd.to_datetime(totals["event_date"])).set_index("event_date")
+    tail = tail.loc[cut - pd.Timedelta(days=5):]
+    gap = pd.DataFrame({
+        "Date": tail.index.strftime("%a %b %d"),
+        "Site purchase events": site_buys.reindex(tail.index).fillna(0).astype("int64").to_numpy(),
+        "Item-level purchases": tail["purchases"].astype("int64").to_numpy(),
+        "Item-level checkouts": tail["checkouts"].astype("int64").to_numpy() if "checkouts" in tail else 0,
+        "Used in the app": tail.index <= cut,
+    })
+    gap["Items per purchase event"] = (gap["Item-level purchases"] / gap["Site purchase events"].replace(0, pd.NA)).astype("Float64").round(2)
+    ui.data_table(gap, key=f"{P}item_gap", column_config={"Used in the app": st.column_config.CheckboxColumn()})
+    st.caption("An order lists about 2.7 products on a normal day, so items per purchase event stays above 1. "
+               f"From {cut + pd.Timedelta(days=1):%b %d} it falls below 1 and then to almost 0: the purchase events have "
+               "lost their item lists.")
 
 # --------------------------------------------------------------------------- categories
 st.subheader("Category mapping")
@@ -259,7 +284,10 @@ win = pd.DataFrame([{"Window": p.label, "Start": p.start, "End": p.end, "Days": 
 ui.data_table(win, key=f"{P}windows")
 st.markdown(
     "- **Pre-holiday baseline (Nov 1–22):** the only normal weeks before the surge; the data starts Nov 1, so a full "
-    "4-week baseline is not possible. A January 4-week baseline is offered as a second reference.\n"
+    "4-week baseline is not possible. A January baseline of the same length (Jan 4–25) is offered as a second "
+    "reference.\n"
+    f"- **Full season** ends on {config.ITEM_DATA_END:%b %d}, the last day with item-level purchases (step 7); the "
+    "whole export (to Jan 31) is used only for site-level counts.\n"
     "- **Cyber Week (Nov 23–30)**, with **Black Friday weekend** and **Cyber Monday** inside it: the first two campaigns.\n"
     "- **December gifting push (Dec 2–18):** ends at the usual standard-shipping cutoff for Christmas delivery."
 )

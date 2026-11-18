@@ -33,12 +33,15 @@ __all__ = [
     "TEMPLATE",
     "apply_template",
     "daily_conversion",
+    "device_bars",
     "device_heatmap",
     "empty_figure",
     "period_bars",
     "product_timeline",
     "quadrant_scatter",
     "rr_dotplot",
+    "short_label",
+    "slot_candidates",
     "spike_share",
     "transition_matrix",
     "trends_small_multiples",
@@ -71,10 +74,16 @@ WHITE = "#FFFFFF"
 _SHORT_LABEL = {
     "full": "Full season", "baseline": "Baseline", "cyber_week": "Cyber Week", "black_friday": "BF weekend",
     "cyber_monday": "Cyber Mon", "december": "Dec push", "post_cutoff": "After cutoff", "january": "January",
-    "january_4wk": "Jan baseline",
+    "january_4wk": "Jan baseline", "export": "Whole export",
 }
 LOG_TICKS = ((100, "100"), (300, "300"), (1_000, "1k"), (3_000, "3k"), (10_000, "10k"), (30_000, "30k"),
              (100_000, "100k"), (300_000, "300k"), (1_000_000, "1M"))
+# Log conversion axis (Feature Picks): 1-2-5 steps from 0.01% to 100%.
+LOG_RATE_TICKS = tuple((m * 10.0**e, f"{100 * m * 10.0**e:g}%") for e in range(-4, 1) for m in (1, 2, 5) if m * 10.0**e <= 1)
+LOG_Y_FLOOR_RATIO = 100.0  # the log conversion axis stops 100x below the average; lower rates sit on the floor
+LOG_Y_HEADROOM = 2.5  # top of the log axis / highest rate: room for the corner badges
+LOW_VOLUME_MIN_VIEWS = 30  # tablet heatmap cells with fewer views show "–" instead of a rate
+ITEM_GAP_COLOR = config.PALETTE["other"]
 QUADRANT_TINT_OPACITY = 0.07
 RR_CLIP = (0.05, 20.0)
 
@@ -284,6 +293,29 @@ def _shade(fig: go.Figure, periods: Any, *, row: Any = None, col: Any = None, la
         fig.add_vrect(**kw)
 
 
+def short_label(key: str) -> str:
+    """Compact window name for tight spots (KPI labels, band labels): "Dec push", "Jan baseline"."""
+    return _SHORT_LABEL.get(key, config.PERIODS[key].label if key in config.PERIODS else key)
+
+
+def _item_gap_band(fig: go.Figure, last_day: Any, *, row: Any = None, col: Any = None) -> bool:
+    """Grey band over the days after ``config.ITEM_DATA_END`` when an item-level series stops
+    exactly there, so the missing days read as missing rather than as an axis that just ends.
+    Returns True when a band was drawn (the caller then pins the x range to the export's end)."""
+    last = pd.Timestamp(last_day).normalize() if last_day is not None and pd.notna(last_day) else None
+    if last is None or last != pd.Timestamp(config.ITEM_DATA_END):
+        return False
+    kw: dict[str, Any] = {
+        "x0": (last + pd.Timedelta(hours=12)).isoformat(),
+        "x1": (pd.Timestamp(config.DATA_END) + pd.Timedelta(hours=12)).isoformat(),
+        "fillcolor": ITEM_GAP_COLOR, "opacity": SHADE_OPACITY, "line_width": 0, "layer": "below", "name": "item_gap",
+    }
+    if row is not None:
+        kw.update(row=row, col=col)
+    fig.add_vrect(**kw)
+    return True
+
+
 def _daily_counts(daily: pd.DataFrame | None) -> pd.DataFrame:
     """``event_date, views, purchases`` per calendar day (missing days filled with 0).
 
@@ -422,6 +454,7 @@ def quadrant_scatter(
     color_map: Mapping[str, str] | None = None,
     highlight: str | None = None,
     label_codes: bool = True,
+    y_scale: str = "linear",
     height: int = 560,
 ) -> go.Figure:
     """The Feature Picks bubble scatter: log views (x) vs conversion (y), eligible products only.
@@ -430,6 +463,10 @@ def quadrant_scatter(
     cr_raw, cr_adj, revenue_usd, code, quadrant]`` (item_name / category_group HTML-escaped), so
     a selection's ``customdata[0]`` is the product key. ``color_map`` is the manifest's
     ``category_colors``; groups it does not colour fall into gray "Other".
+
+    ``y_scale="linear"`` clips outliers above the 95th percentile to the top edge (triangle-up).
+    ``y_scale="log"`` shows every rate, so the top converters stay readable; rates more than
+    ``LOG_Y_FLOOR_RATIO`` times below the average (including zero) sit on the floor (triangle-down).
     """
     df = _eligible(products)
     if not df.empty:
@@ -456,10 +493,25 @@ def quadrant_scatter(
         )
         quads = np.where(missing, guess, quads).astype(object)
 
-    cap = _y_cap(yv, tc)
-    over = yv > cap
-    y_plot = np.minimum(yv, cap)
-    y_range = [-0.05 * cap, cap * Y_HEADROOM]
+    log_y = str(y_scale).lower() == "log"
+    if log_y:
+        positive = yv[yv > 0]
+        ref = tc if _finite(tc) and tc > 0 else (float(np.median(positive)) if len(positive) else 1e-3)
+        floor = max(float(positive.min()) / 1.3 if len(positive) else ref / 10, ref / LOG_Y_FLOOR_RATIO)
+        under = ~(yv >= floor)
+        over = np.zeros(n, dtype=bool)
+        cap = max(float(np.max(yv)), ref)
+        y_plot = np.where(under, floor, yv)
+        y_range = [floor / 1.4, cap * LOG_Y_HEADROOM]  # data values (shapes); the axis takes log10
+        tc_line = max(tc, floor)
+    else:
+        under = np.zeros(n, dtype=bool)
+        floor = 0.0
+        cap = _y_cap(yv, tc)
+        over = yv > cap
+        y_plot = np.minimum(yv, cap)
+        y_range = [-0.05 * cap, cap * Y_HEADROOM]
+        tc_line = tc
     lo, hi = math.log10(views.min()), math.log10(views.max())
     lo, hi = min(lo, math.log10(tv)), max(hi, math.log10(tv))
     pad = max(0.12, 0.06 * (hi - lo))
@@ -481,7 +533,7 @@ def quadrant_scatter(
 
     conf = _txt(df, "confidence", "")
     opacity = np.where(conf == "uncertain", 0.45, 0.9)
-    symbols = np.where(over, "triangle-up", "circle")
+    symbols = np.where(over, "triangle-up", np.where(under, "triangle-down", "circle"))
     keys = _txt(df, "product_key", "")
     names = _txt(df, "item_name", "")
     names = np.where(names == "", keys, names)
@@ -515,6 +567,8 @@ def quadrant_scatter(
             lines.append(conf_line)
         if over[i]:
             lines.append(f"▲ Off the chart: drawn at {_pct(cap)}, actual {_pct(yv[i])}")
+        if under[i]:
+            lines.append(f"▼ Below the axis: drawn at {_pct(floor, 3)}, actual {_pct(yv[i], 3)}")
         notes.append("<br>".join(lines) or " ")
 
     fig = go.Figure()
@@ -548,10 +602,10 @@ def quadrant_scatter(
 
     x_lo, x_hi = 10 ** x_range[0], 10 ** x_range[1]
     rects = {
-        "Hidden gems": (x_lo, tv, tc, y_range[1]),
-        "Winners": (tv, x_hi, tc, y_range[1]),
-        "Low priority": (x_lo, tv, y_range[0], tc),
-        "Wasted exposure": (tv, x_hi, y_range[0], tc),
+        "Hidden gems": (x_lo, tv, tc_line, y_range[1]),
+        "Winners": (tv, x_hi, tc_line, y_range[1]),
+        "Low priority": (x_lo, tv, y_range[0], tc_line),
+        "Wasted exposure": (tv, x_hi, y_range[0], tc_line),
     }
     for quad, (x0, x1, y0, y1) in rects.items():
         # Shapes take data values on a log axis (annotations would need log10 values).
@@ -561,7 +615,7 @@ def quadrant_scatter(
         )
     threshold = {"color": INK, "width": 1, "dash": "dash"}
     fig.add_shape(type="line", xref="x", yref="paper", x0=tv, x1=tv, y0=0, y1=1, line=threshold)
-    fig.add_shape(type="line", xref="paper", yref="y", x0=0, x1=1, y0=tc, y1=tc, line=threshold)
+    fig.add_shape(type="line", xref="paper", yref="y", x0=0, x1=1, y0=tc_line, y1=tc_line, line=threshold)
 
     corners = {
         "top-left": (0, 1, "left", "top", 6, -6),
@@ -584,8 +638,9 @@ def quadrant_scatter(
         x=math.log10(tv), y=1.0, xanchor="center", yanchor="bottom", yshift=2,
     )
     fig.add_annotation(
-        name="threshold:conversion", text=f"Average<br>{_pct(tc)}", xref="paper", yref="y", x=1.0, y=tc,
-        xanchor="left", yanchor="middle", xshift=6, align="left",
+        # Annotations on a log axis take log10 coordinates (shapes take data values).
+        name="threshold:conversion", text=f"Average<br>{_pct(tc)}", xref="paper", yref="y", x=1.0,
+        y=math.log10(tc_line) if log_y else tc_line, xanchor="left", yanchor="middle", xshift=6, align="left",
     )
     if over.any():
         k = int(over.sum())
@@ -594,8 +649,17 @@ def quadrant_scatter(
             xref="x domain", yref="y domain", x=0.5, y=1, xanchor="center", yanchor="top", yshift=-6,
             bgcolor=WHITE_BOX, font={"color": MUTED, "size": 11},
         )
+    if under.any():
+        k = int(under.sum())
+        what = "with no purchases" if not (yv[under] > 0).any() else f"below {_pct(floor, 3)}"
+        fig.add_annotation(
+            name="underflow",
+            text=f"▼ {k} product{'s' if k != 1 else ''} {what}, drawn at the bottom edge",
+            xref="x domain", yref="y domain", x=0.5, y=0, xanchor="center", yanchor="bottom", yshift=6,
+            bgcolor=WHITE_BOX, font={"color": MUTED, "size": 11},
+        )
 
-    y_title = "Purchases per product view" + (" (adjusted)" if y == "cr_adj" else "")
+    y_title = "Purchases per product view" + (" (adjusted)" if y == "cr_adj" else "") + (" (log scale)" if log_y else "")
     apply_template(
         fig, height=height, showlegend=len(series) >= 2, legend={"itemsizing": "constant", "y": 1.09},
         margin={"t": 84, "r": 84},
@@ -605,7 +669,15 @@ def quadrant_scatter(
         type="log", range=x_range, title_text="Product views (log scale)",
         tickvals=[v for v, _ in ticks], ticktext=[t for _, t in ticks], minor={"showgrid": False},
     )
-    fig.update_yaxes(range=y_range, tickformat=".2~%", title_text=y_title)
+    if log_y:
+        y_log = [math.log10(y_range[0]), math.log10(y_range[1])]
+        y_ticks = [(v, t) for v, t in LOG_RATE_TICKS if y_log[0] <= math.log10(v) <= y_log[1]]
+        fig.update_yaxes(
+            type="log", range=y_log, title_text=y_title, tickvals=[v for v, _ in y_ticks],
+            ticktext=[t for _, t in y_ticks], minor={"showgrid": False},
+        )
+    else:
+        fig.update_yaxes(range=y_range, tickformat=".2~%", title_text=y_title)
     return fig
 
 
@@ -629,10 +701,15 @@ def product_timeline(daily_one: pd.DataFrame | None, periods: Any = None, *, hei
         ),
         row=2, col=1,
     )
+    gap = False
     for r in (1, 2):
         _shade(fig, periods, row=r, col=1, label=r == 1)
+        gap = _item_gap_band(fig, d["event_date"].max(), row=r, col=1) or gap
     apply_template(fig, height=height, hovermode="x unified", bargap=0.15, barcornerradius=2, margin={"t": 40})
     fig.update_xaxes(hoverformat="%a %b %d, %Y")
+    if gap:
+        fig.update_xaxes(range=[d["event_date"].min() - pd.Timedelta(hours=12),
+                                pd.Timestamp(config.DATA_END) + pd.Timedelta(hours=12)])
     fig.update_yaxes(title_text="Views", rangemode="tozero", row=1, col=1)
     fig.update_yaxes(title_text="Purchases", rangemode="tozero", row=2, col=1)
     return fig
@@ -753,6 +830,9 @@ def daily_conversion(
     _shade(fig, periods)
     apply_template(fig, height=height, showlegend=False, hovermode="x unified")
     fig.update_xaxes(hoverformat="%a %b %d, %Y")
+    if _item_gap_band(fig, d["event_date"].max()):
+        fig.update_xaxes(range=[d["event_date"].min() - pd.Timedelta(hours=12),
+                                pd.Timestamp(config.DATA_END) + pd.Timedelta(hours=12)])
     fig.update_yaxes(tickformat=".2~%", rangemode="tozero", title_text=_esc(y_title))
     return fig
 
@@ -877,6 +957,12 @@ def device_heatmap(
         rel = dev_index / usual[:, None]
         rel = np.where(rel > 0, rel, np.nan)
         z = np.clip(np.log2(rel), -1.0, 1.0)
+    # Low-volume tablet cells (a handful of views) would print 0% or 33%: show "–" and no colour.
+    sparse = np.zeros(z.shape, dtype=bool)
+    for j, dev in enumerate(devices):
+        if dev == "tablet":
+            sparse[:, j] = ~(np.nan_to_num(views[:, j]) >= LOW_VOLUME_MIN_VIEWS)
+    z = np.where(sparse, np.nan, z)
     shown = grid(text_col)
     name_of = dict(zip(df["_k"], _txt(df, "item_name", "")))
     names = [_short(name_of.get(k) or k, max_label) for k in order]
@@ -888,7 +974,10 @@ def device_heatmap(
             if _finite(views[i, j]):
                 lines.append(f"{views[i, j]:,.0f} views · {np.nan_to_num(purch[i, j]):,.0f} purchases")
             lines.append(f"Device conversion: {_pct(raw[i, j])}")
-            lines.append(f"{rel[i, j]:.2f}× vs its usual" if _finite(rel[i, j]) else "vs its usual: –")
+            if sparse[i, j]:
+                lines.append(f"Fewer than {LOW_VOLUME_MIN_VIEWS} views: too few to read")
+            else:
+                lines.append(f"{rel[i, j]:.2f}× vs its usual" if _finite(rel[i, j]) else "vs its usual: –")
             hover[i, j] = "<br>".join(lines)
 
     fig = go.Figure()
@@ -922,12 +1011,14 @@ def device_heatmap(
             else:
                 colour = SURFACE if _finite(z[i, j]) and z[i, j] >= 0.55 else INK
             fig.add_annotation(
-                text=_pct(shown[i, j]), x=j, y=i, xref="x", yref="y", font={"size": 11, "color": colour}
+                text="–" if sparse[i, j] else _pct(shown[i, j]), x=j, y=i, xref="x", yref="y",
+                font={"size": 11, "color": colour},
             )
 
-    has_lean = _has(lean) and {"product_key", "lean"} <= set(lean.columns)
+    # The lean column only earns its space when some product leans; otherwise the page says so.
+    lean_of = dict(zip(_txt(lean, "product_key"), _txt(lean, "lean"))) if _has(lean) and {"product_key", "lean"} <= set(lean.columns) else {}
+    has_lean = any(lean_of.get(k) in _LEAN_STRONG for k in order)
     if has_lean:
-        lean_of = dict(zip(_txt(lean, "product_key"), _txt(lean, "lean")))
         fig.add_annotation(
             text="<b>Lean</b> (mobile vs desktop)", xref="paper", yref="paper", x=1, y=1, xanchor="left",
             yanchor="bottom", xshift=10, font={"color": INK_2, "size": 11},
@@ -1164,5 +1255,163 @@ def rr_dotplot(tests: pd.DataFrame | None, *, max_label: int = 40, height: int |
     fig.update_yaxes(
         tickvals=list(range(n)), ticktext=[_esc(s) for s in labels], autorange="reversed", showgrid=False,
         tickfont={"color": INK_2},
+    )
+    return fig
+
+
+# --------------------------------------------------------------------------- Product inspector
+
+
+def device_bars(matrix_one: pd.DataFrame | None, *, height: int = 210) -> go.Figure:
+    """One product's raw conversion per device (horizontal bars; tablet faded) with each device's
+    store-wide average as a tick, so "better on mobile" reads against the right baseline
+    (``metrics.device_matrix`` rows for a single product)."""
+    if not _has(matrix_one) or "device" not in matrix_one.columns:
+        return empty_figure("No device data for this product.", height=height)
+    df = matrix_one.assign(_d=_txt(matrix_one, "device")).drop_duplicates("_d").set_index("_d")
+    devices = [d for d in config.DEVICES if d in df.index]
+    if not devices:
+        return empty_figure("No device data for this product.", height=height)
+    rows = df.reindex(devices)
+    cr, avg = _num(rows, "cr_raw"), _num(rows, "device_rate")
+    views, purch = np.nan_to_num(_num(rows, "views", 0.0)), np.nan_to_num(_num(rows, "purchases", 0.0))
+    labels = [d.capitalize() for d in devices]
+    faded = np.array([d == "tablet" or v < LOW_VOLUME_MIN_VIEWS for d, v in zip(devices, views)])
+    text = [
+        "too few views" if v < LOW_VOLUME_MIN_VIEWS else f"{_pct(c)} · {v:,.0f} views"
+        for c, v in zip(cr, views)
+    ]
+    hover = [
+        f"<b>{lab}</b><br>{v:,.0f} views · {p:,.0f} purchases<br>Conversion {_pct(c)} (device average {_pct(a)})"
+        for lab, v, p, c, a in zip(labels, views, purch, cr, avg)
+    ]
+    fig = go.Figure(
+        go.Bar(
+            y=labels, x=np.nan_to_num(cr), orientation="h", name="This product",
+            marker={"color": SERIES[0], "opacity": np.where(faded, 0.4, 1.0).tolist(), "line": {"width": 0}},
+            text=text, textposition="outside", cliponaxis=False, textfont={"color": INK_2, "size": 11},
+            hovertext=hover, hovertemplate="%{hovertext}<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            y=labels, x=avg, mode="markers", name="Device average",
+            marker={"symbol": "line-ns-open", "size": 22, "color": INK, "line": {"width": 2, "color": INK}},
+            hoverinfo="skip",
+        )
+    )
+    top = np.nanmax(np.concatenate([np.nan_to_num(cr), np.nan_to_num(avg)]))
+    apply_template(
+        fig, height=height, showlegend=True, bargap=0.35, margin={"l": 64, "r": 24, "t": 30, "b": 36},
+        legend={"y": 1.0, "yanchor": "bottom"},
+    )
+    fig.update_xaxes(tickformat=".1~%", range=[0, max(float(top), 1e-6) * 1.6], title_text=None)
+    fig.update_yaxes(autorange="reversed", showgrid=False, tickfont={"color": INK_2})
+    return fig
+
+
+# --------------------------------------------------------------------------- Slot Plan
+
+
+def slot_candidates(
+    scores: pd.DataFrame | None,
+    picked: Iterable[str] = (),
+    *,
+    top: int = 12,
+    max_label: int = 36,
+    height: int | None = None,
+) -> go.Figure:
+    """One campaign's best-scoring candidates (``metrics.campaign_scores`` output): expected
+    purchases per 1,000 views with the 80% interval, picks filled navy and the rest hollow gray,
+    the window average as a solid line, and each product's window views listed on the right.
+    It shows how far ahead of the alternatives each pick really is, and how little window
+    evidence the short campaigns have. Picked products are always shown, even outside the top."""
+    if not _has(scores) or "score_per_1k" not in scores.columns or "product_key" not in scores.columns:
+        return empty_figure("No candidates scored for this campaign.", height=height or 320)
+    picked = {str(k) for k in picked}
+    keys = _txt(scores, "product_key")
+    eligible = scores
+    if "eligible" in scores.columns:
+        eligible = scores[scores["eligible"].astype(object).where(scores["eligible"].notna(), False).astype(bool).to_numpy()]
+    best = eligible.sort_values(["score_per_1k", "product_key"], ascending=[False, True], kind="mergesort").head(top)
+    extra = scores[np.isin(keys, list(picked)) & ~np.isin(keys, _txt(best, "product_key"))]
+    df = pd.concat([best, extra]).sort_values(["score_per_1k", "product_key"], ascending=[False, True], kind="mergesort")
+    df = df.reset_index(drop=True)
+    if df.empty:
+        return empty_figure("No candidates scored for this campaign.", height=height or 320)
+    n = len(df)
+    k = _txt(df, "product_key")
+    x = _num(df, "score_per_1k")
+    lo, hi = 1000.0 * _num(df, "ci_low"), 1000.0 * _num(df, "ci_high")
+    lo, hi = np.where(np.isfinite(lo), lo, x), np.where(np.isfinite(hi), hi, x)
+    views_w, purch_w = np.nan_to_num(_num(df, "views_w", 0.0)), np.nan_to_num(_num(df, "purchases_w", 0.0))
+    weight = _num(df, "window_weight")
+    names = _txt(df, "item_name")
+    names = np.where(names == "", k, names)
+    is_pick = np.isin(k, list(picked))
+    hover = []
+    for i in range(n):
+        lines = [
+            f"<b>{_esc(names[i])}</b>" + (" · in the plan" if is_pick[i] else ""),
+            f"{x[i]:.1f} purchases per 1,000 views (80% range {lo[i]:.1f}–{hi[i]:.1f})",
+            f"In the window: {views_w[i]:,.0f} views, {purch_w[i]:,.0f} purchases",
+        ]
+        if _finite(weight[i]):
+            lines.append(f"{weight[i]:.0%} of the score comes from the window; the rest from the full season")
+        hover.append("<br>".join(lines))
+
+    fig = go.Figure()
+    navy = config.PALETTE["navy"]
+    for sel, name, colour, symbol, ring in (
+        (~is_pick, "Other candidates", OTHER, "circle-open", OTHER),
+        (is_pick, "In the plan", navy, "circle", SURFACE),
+    ):
+        idx = np.flatnonzero(sel)
+        if not len(idx):
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=x[idx], y=idx, mode="markers", name=name,
+                marker={"size": 11, "color": colour, "symbol": symbol, "line": {"width": 2, "color": ring}},
+                error_x={"type": "data", "symmetric": False, "array": (hi - x)[idx], "arrayminus": (x - lo)[idx],
+                         "color": colour, "thickness": 1.5, "width": 0},
+                hovertext=[hover[i] for i in idx], hovertemplate="%{hovertext}<extra></extra>",
+            )
+        )
+    avg = _num(df, "window_avg")
+    avg = float(np.nanmedian(avg)) * 1000.0 if np.isfinite(avg).any() else np.nan
+    # Zoom to the candidates, where the overlap between ranges is the message; the window average is
+    # drawn as a line only when it is near them, otherwise stated in a note (it is often 20x lower).
+    left = float(np.nanmin(lo))
+    span = float(np.nanmax(hi)) - left
+    x_lo = max(left - 0.08 * max(span, 1e-6), 0.0)
+    avg_on_axis = _finite(avg) and avg >= x_lo
+    if _finite(avg):
+        if avg_on_axis:
+            fig.add_shape(type="line", xref="x", yref="paper", x0=avg, x1=avg, y0=0, y1=1, line={"color": INK, "width": 1})
+        fig.add_annotation(
+            name="window_avg", text=f"Window average {avg:.1f}" + ("" if avg_on_axis else " (off the axis, to the left)"),
+            xref="x" if avg_on_axis else "x domain", yref="y domain", x=avg if avg_on_axis else 0, y=1,
+            xanchor="left", yanchor="top", xshift=4, yshift=-2, bgcolor=WHITE_BOX, font={"color": INK_2, "size": 11},
+        )
+    fig.add_annotation(
+        text="<b>Window views</b>", xref="paper", yref="paper", x=1, y=1, xanchor="left", yanchor="bottom", xshift=10,
+    )
+    for i in range(n):
+        thin = _finite(weight[i]) and weight[i] < 0.5
+        fig.add_annotation(
+            name="window_views", text=f"{views_w[i]:,.0f}" + (" (mostly season)" if thin else ""), xref="paper",
+            yref="y", x=1, y=i, xanchor="left", xshift=10, font={"color": INK_2, "size": 11},
+        )
+    right = float(np.nanmax(hi))
+    apply_template(
+        fig, height=height or max(300, 28 * n + 160), showlegend=True, hovermode="closest",
+        margin={"r": 150, "t": 64},
+    )
+    fig.update_xaxes(range=[x_lo, right + 0.05 * max(span, 1e-6)],
+                     title_text="Expected purchases per 1,000 views (80% range)")
+    fig.update_yaxes(
+        tickvals=list(range(n)), ticktext=[_esc(_short(s, max_label)) for s in names], autorange="reversed",
+        showgrid=False, tickfont={"color": INK_2},
     )
     return fig

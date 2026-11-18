@@ -442,6 +442,62 @@ def test_slot_plan_conflicts_exclude_and_repeats():
     assert metrics.slot_plan({}, slots).empty
 
 
+def test_views_undercount_flag():
+    rows = [("quick", "Apparel", 300, 30), ("normal", "Apparel", 5000, 25), ("none", "Apparel", 0, 0)]
+    plain = metrics.shrink(_products(rows), m=100.0).set_index("product_key")
+    out = metrics.shrink(_products(rows).assign(checkouts=[200, 150, 5]), m=100.0).set_index("product_key")
+    # 200 checkouts on 300 views reaches config.UNDERCOUNT_RATIO; a product without views is never flagged.
+    assert out["views_undercount"].to_dict() == {"quick": True, "normal": False, "none": False}
+    assert out.at["quick", "checkouts"] == 200
+    assert not plain["views_undercount"].any() and (plain["checkouts"] == 0).all()
+    # A flag only: the score does not change.
+    assert out["cr_adj"].to_numpy() == pytest.approx(plain["cr_adj"].to_numpy())
+
+
+def test_campaign_scores_interval_and_window_weight():
+    rows = []
+    for i in range(25):
+        rows += [("2020-11-05", "desktop", f"a{i}", 2000, 10), ("2020-11-27", "desktop", f"a{i}", 400, 4)]
+        rows += [("2020-11-05", "desktop", f"d{i}", 2000, 10), ("2020-11-27", "desktop", f"d{i}", 40, 0)]
+    dim = _dim({f"a{i}": "Apparel" for i in range(25)} | {f"d{i}": "Drinkware" for i in range(25)})
+    m = 300.0
+    cs = metrics.campaign_scores(_daily(rows), dim, config.PERIODS["black_friday"], Filters(min_views=100), m)
+    assert ((cs["ci_low"] < cs["score"]) & (cs["score"] < cs["ci_high"])).all()
+    r = cs.set_index("product_key")
+    assert r.at["a0", "window_weight"] == pytest.approx(400 / (400 + m)) and not r.at["a0", "thin_window"]
+    assert r.at["d0", "window_weight"] == pytest.approx(40 / (40 + m)) and r.at["d0", "thin_window"]
+    # More window evidence, narrower range (relative to the score).
+    rel = (r["ci_high"] - r["ci_low"]) / r["score"]
+    assert rel["a0"] < rel["d0"]
+    plan = metrics.slot_plan({"Black Friday": cs}, 2)
+    assert {"ci_low", "ci_high", "window_weight", "thin_window", "pinned"} <= set(plan.columns)
+
+
+def test_slot_plan_pins_go_to_their_best_campaign():
+    keys = ["a", "b", "c", "d", "e"]
+    bf, cm, dec = list(config.CAMPAIGNS)
+    scores = {c: _scores(keys, ineligible=("d",)) for c in config.CAMPAIGNS}
+    scores[dec].loc[scores[dec]["product_key"] == "e", "score_per_1k"] = 50.0  # "e" is best in December
+    plan = metrics.slot_plan(scores, 2, must_include=["e", "d", "zz"])
+    by = {c: plan[plan["campaign"] == c] for c in config.CAMPAIGNS}
+    # "e" leads December (slots are numbered by score); "d" is not eligible but pinned, and scores the
+    # same everywhere, so it takes the first campaign with room.
+    assert by[dec]["product_key"].tolist() == ["e"] and by[dec]["pinned"].tolist() == [True]
+    assert by[bf]["product_key"].tolist() == ["a", "d"] and by[bf]["pinned"].tolist() == [False, True]
+    assert by[cm]["product_key"].tolist() == ["b", "c"] and not by[cm]["pinned"].any()
+    assert plan["product_key"].value_counts().max() == 1  # no repeats: pins are used up too
+    assert plan.attrs["unplaced"] == ["zz"]  # never scored
+    for c in config.CAMPAIGNS:
+        assert by[c]["slot"].tolist() == list(range(1, len(by[c]) + 1))
+        assert by[c]["score_per_1k"].is_monotonic_decreasing
+    # No room left, a cannibal partner, or an exclusion: reported, never forced in.
+    full = metrics.slot_plan({bf: _scores(keys)}, 1, must_include=["c", "d"])
+    assert full["product_key"].tolist() == ["c"] and full.attrs["unplaced"] == ["d"]
+    pair = metrics.slot_plan({bf: _scores(keys)}, 3, conflicts={frozenset({"a", "c"})}, must_include=["c"])
+    assert pair["product_key"].tolist() == ["b", "c", "d"]
+    assert metrics.slot_plan({bf: _scores(keys)}, 2, exclude={"a"}, must_include=["a"]).attrs["unplaced"] == ["a"]
+
+
 # --------------------------------------------------------------------------- real snapshots (smoke)
 
 
@@ -471,7 +527,7 @@ def test_real_full_season_pipeline(real):
 
 
 def test_real_site_conversion_matches_pipeline(real):
-    keys = ("baseline", "cyber_week", "december", "full")
+    keys = ("baseline", "cyber_week", "december", "export")  # export = all 92 days (the pitch's 1.47%)
     out = metrics.site_conversion(real["site_daily"], [config.PERIODS[k] for k in keys])
     assert (out["cr"] * 100).round(2).tolist() == [1.18, 1.85, 1.70, 1.47]
 

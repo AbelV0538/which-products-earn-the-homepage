@@ -1,4 +1,9 @@
-"""Sidebar filters and session state (widget keys are shared by every page)."""
+"""Sidebar filters and session state (widget keys are shared by every page).
+
+The filters also live in the URL (``?preset=cyber_week&dev=mobile&cat=Bags&minv=500``, or
+``start`` / ``end`` ISO dates for a custom range), so a link reproduces the view: the URL is read
+once per session, before the widgets are drawn, and rewritten after every change.
+"""
 
 from __future__ import annotations
 
@@ -14,14 +19,13 @@ from .types import Filters
 DATES, PRESET, DEV, CAT, MINV = "dates", "preset", "dev", "cat", "minv"
 AI_MODEL, AI_CUSTOM, AI_KEY, AI_AUTO, AI_CACHE = "ai_model", "ai_custom_model", "ai_key", "ai_auto", "ai_cache"
 INSPECT = "inspect_key"
-PINNED = "sp_pinned"  # products added to the slot plan from the inspector
-PAGE_PREFIXES = {
-    "feature_picks": "fp_", "holiday_shift": "hs_", "device_split": "ds_", "outside_signal": "os_",
-    "cannibalization": "cc_", "slot_plan": "sp_", "data_method": "dm_",
-}
+PINNED = "sp_pinned"  # products pinned to the slot plan (inspector button or the Slot Plan page)
+EXCLUDED = "sp_excluded"  # products kept out of the slot plan (e.g. out of stock)
 CUSTOM_MODEL = "Custom…"
 DEFAULT_PRESET = "full"
 _LAST_DATES = "_dates_valid"  # last complete (start, end) pick
+_QP_LOADED = "_query_params_loaded"
+QP_LISTS = ("dev", "cat")  # URL keys that repeat (one value per device / category)
 # Filters that do not apply on a page are shown disabled.
 DATES_OFF = {"holiday_shift", "outside_signal"}
 DEVICES_OFF = {"device_split"}
@@ -50,6 +54,69 @@ def init_state() -> None:
     ss.setdefault(AI_CACHE, {})
     ss.setdefault(INSPECT, None)
     ss.setdefault(PINNED, [])
+    ss.setdefault(EXCLUDED, [])
+
+
+def _iso(value: object) -> date | None:
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def load_query_params() -> None:
+    """Seed the filters from the URL once per session. Unknown or invalid values are ignored."""
+    ss = st.session_state
+    if ss.get(_QP_LOADED):
+        return
+    ss[_QP_LOADED] = True
+    qp = st.query_params
+    preset = qp.get("preset")
+    start, end = _iso(qp.get("start")), _iso(qp.get("end"))
+    if preset in config.PRESETS:
+        ss[PRESET] = preset
+        ss[DATES] = ss[_LAST_DATES] = _preset_dates(preset)
+    elif start and end:
+        start, end = sorted((start, end))
+        start, end = max(start, config.DATA_START), min(end, config.ITEM_DATA_END)
+        if start <= end:
+            ss[PRESET] = None
+            ss[DATES] = ss[_LAST_DATES] = (start, end)
+    devices = [d for d in config.DEVICES if d in qp.get_all("dev")]
+    if devices:
+        ss[DEV] = devices
+    cats = [c for c in config.CATEGORY_GROUPS if c in qp.get_all("cat")]
+    if cats:
+        ss[CAT] = cats
+    minv = qp.get("minv", "")
+    if minv.isdigit() and int(minv) in config.MIN_VIEWS_OPTIONS:
+        ss[MINV] = int(minv)
+
+
+def query_params_for(f: Filters, preset: str | None) -> dict[str, str | list[str]]:
+    """The URL parameters that reproduce ``f`` (defaults are left out, so a plain link = defaults)."""
+    out: dict[str, str | list[str]] = {}
+    if preset:
+        if preset != DEFAULT_PRESET:
+            out["preset"] = preset
+    else:
+        out["start"], out["end"] = f.start.isoformat(), f.end.isoformat()
+    if f.devices:
+        out["dev"] = list(f.devices)
+    if f.categories:
+        out["cat"] = list(f.categories)
+    if f.min_views != config.DEFAULT_MIN_VIEWS:
+        out["minv"] = str(f.min_views)
+    return out
+
+
+def sync_query_params() -> None:
+    """Rewrite the URL when it no longer matches the sidebar (no rerun is triggered)."""
+    want = query_params_for(current_filters(), st.session_state.get(PRESET))
+    qp = st.query_params
+    have = {k: (qp.get_all(k) if k in QP_LISTS else qp.get(k)) for k in qp.keys()}
+    if have != want:
+        qp.from_dict(want)
 
 
 def _on_preset() -> None:
@@ -102,10 +169,11 @@ def ai_settings() -> tuple[str, str | None, str]:
 
 def render_sidebar(snapshot, page_id: str) -> Filters:
     """Draw the global filters and the AI narrator settings; return the current scope."""
+    load_query_params()
     init_state()
     item_dates = snapshot.item_daily["event_date"]
     lo = min(config.DATA_START, pd.Timestamp(item_dates.min()).date())
-    hi = max(config.DATA_END, pd.Timestamp(item_dates.max()).date())
+    hi = config.ITEM_DATA_END  # item-level purchases stop after this day
     dates_off, dev_off = page_id in DATES_OFF, page_id in DEVICES_OFF
     groups = [g for g in config.CATEGORY_GROUPS if g in set(snapshot.product_dim["category_group"].astype(str))]
 
@@ -131,7 +199,11 @@ def render_sidebar(snapshot, page_id: str) -> Filters:
                          help="Products with fewer views in scope are shown greyed out and are not ranked.")
         st.button("Reset filters", on_click=reset_filters, key="reset_filters", width="stretch")
         dates = snapshot.manifest.get("generated_at") or ""
-        st.caption(f"Data: {snapshot.manifest.get('source', 'unknown')} snapshot, built {str(dates)[:10]}.")
+        st.caption(
+            f"Data: {snapshot.manifest.get('source', 'unknown')} snapshot, built {str(dates)[:10]}. "
+            f"Dates stop at {config.ITEM_DATA_END:%b %d, %Y}: after that the sample's purchases carry no "
+            "products (see Data & Method). The page URL keeps these filters, so it can be shared."
+        )
 
         with st.expander("AI narrator"):
             options = [*config.LLM_MODELS, CUSTOM_MODEL]
@@ -146,4 +218,5 @@ def render_sidebar(snapshot, page_id: str) -> Filters:
                       "env": "key from the OPENROUTER_API_KEY environment variable", "none": "no key: the rule-based verdict is shown"}
             st.caption(f"Key status: {labels.get(source, source)}.")
             st.toggle("Auto-write when filters change", key=AI_AUTO)
+    sync_query_params()
     return current_filters()

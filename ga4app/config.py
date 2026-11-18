@@ -56,7 +56,13 @@ PROOF_EXPECTED = {"event_count": 4_295_584, "user_count": 270_154, "day_count": 
 # --------------------------------------------------------------------------- data shape
 
 DATA_START = date(2020, 11, 1)
-DATA_END = date(2021, 1, 31)
+DATA_END = date(2021, 1, 31)  # raw extent of the export (the 92 days of the proof query)
+# Last day with item-level purchases. From Jan 26, 2021 the sample's purchase events stop listing
+# their items: site purchase events stay normal (19-69 a day) while item-level purchases fall to
+# 53, 12, 10, 16, 11, 0. Through Jan 25 every day has at least 1.13 item rows per purchase event;
+# after it, under 1.0 (scripts/verify_snapshots.py checks this). The app drops item rows after
+# this date, so those days are never read as days nobody bought anything.
+ITEM_DATA_END = date(2021, 1, 25)
 DEVICES = ("desktop", "mobile", "tablet")
 FUNNEL_EVENTS = ("view_item", "add_to_cart", "begin_checkout", "purchase")
 # GA4 obfuscation placeholders. The SQL files spell this list out literally; a unit test
@@ -89,19 +95,23 @@ class Period:
 
 # Windows come from the data: purchases surge on Mon Nov 23 (before Thanksgiving), peak
 # Dec 9-16 and collapse after the Dec 18 shipping cutoff. Only ~3 pre-holiday weeks exist
-# (data starts Nov 1), so a 4-week January window is offered as the alternative baseline.
+# (data starts Nov 1), so a January window (Jan 4-25, the same 22 days) is offered as the
+# alternative baseline; item-level data ends Jan 25 (ITEM_DATA_END). "full" is the analysis
+# season; "export" is the raw 92-day extent, used only for site-level counts.
 PERIODS: dict[str, Period] = {
     p.key: p
     for p in (
-        Period("full", "Full season", date(2020, 11, 1), date(2021, 1, 31)),
+        Period("full", "Full season", DATA_START, ITEM_DATA_END),
         Period("baseline", "Pre-holiday baseline", date(2020, 11, 1), date(2020, 11, 22)),
         Period("cyber_week", "Cyber Week", date(2020, 11, 23), date(2020, 11, 30)),
         Period("black_friday", "Black Friday weekend", date(2020, 11, 26), date(2020, 11, 29)),
         Period("cyber_monday", "Cyber Monday", date(2020, 11, 30), date(2020, 12, 1)),
         Period("december", "December gifting push", date(2020, 12, 2), date(2020, 12, 18)),
         Period("post_cutoff", "After shipping cutoff", date(2020, 12, 19), date(2020, 12, 31)),
-        Period("january", "January", date(2021, 1, 1), date(2021, 1, 31)),
-        Period("january_4wk", "January 4-week baseline", date(2021, 1, 4), date(2021, 1, 31)),
+        Period("january", "January", date(2021, 1, 1), ITEM_DATA_END),
+        # Key kept from the earlier 4-week version (Jan 4-31) so saved comparisons still resolve.
+        Period("january_4wk", "January baseline", date(2021, 1, 4), ITEM_DATA_END),
+        Period("export", "Whole export (site counts only)", DATA_START, DATA_END),
     )
 }
 # Sidebar season presets (order = display order).
@@ -122,6 +132,8 @@ CAMPAIGNS = {
     "Cyber Monday": "cyber_monday",
     "December gifting": "december",
 }
+# Google Trends window read for each campaign (weekly Trends data cannot isolate a 2-4 day window).
+CAMPAIGN_TREND_FOCUS = {"Black Friday": "cyber_week", "Cyber Monday": "cyber_week", "December gifting": "december"}
 
 # --------------------------------------------------------------------------- thresholds
 
@@ -133,6 +145,10 @@ SHRINK_MIN_VIEWS = 100  # products used to estimate m
 CONF_INTERVAL = 0.80  # posterior interval used for the above/below/uncertain call
 TOP_N_CODES = 5  # W1..W5, G1..G5, X1..X5 citation codes
 DEFAULT_SLOTS = 4  # homepage slots per campaign
+# A product whose checkout events number at least this share of its product views is flagged:
+# shoppers reached it some other way than a product page (the site average is ~1 checkout per
+# 35 views), so its views are probably under-counted and its conversion overstated.
+UNDERCOUNT_RATIO = 0.5
 CATEGORY_UPLIFT_MIN_VIEWS = 2000  # below this a category borrows the site-wide uplift
 DEVICE_LEAN = {"rr_hi": 1.25, "rr_lo": 0.80, "alpha": 0.10, "min_purchases": 10}
 CANNIBAL = {

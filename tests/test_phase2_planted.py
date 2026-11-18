@@ -52,7 +52,8 @@ def _row(tests: pd.DataFrame, a: str, b: str) -> pd.Series:
 
 
 def test_planted_spike_days_are_found(syn: dict):
-    spikes = phase2.exposure_spikes(syn["item"], syn["dim"])
+    # The raw synthetic export runs to Jan 31; Filters() would stop at ITEM_DATA_END (Jan 25).
+    spikes = phase2.exposure_spikes(syn["item"], syn["dim"], Filters(end=config.DATA_END))
     for pair in ("cannibal_pair", "null_pair"):
         truth = syn["truth"][pair]
         found = spikes.loc[spikes["is_spike"] & (spikes["product_key"] == truth["a"]), "event_date"]

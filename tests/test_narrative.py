@@ -173,6 +173,91 @@ def test_payload_without_optional_inputs():
     assert "outside_signal" not in payload and "cannibalization" not in payload
 
 
+def make_plan() -> pd.DataFrame:
+    """A ``metrics.slot_plan``-shaped frame, rows deliberately out of campaign and slot order."""
+    return pd.DataFrame(
+        {
+            "campaign": ["December gifting", "Black Friday", "Black Friday", "Black Friday", "Cyber Monday"],
+            "slot": [1, 2, 1, 3, 1],
+            "product_key": ["w2", "w1", "g1", "zz", "l1"],
+            "item_name": ["Google Tee White", "Google Hoodie Navy", "Google Cloud Sticker", "Mystery [Item]", "Google Socks"],
+            "score_per_1k": [9.876, 12.0, 15.234, 8.0, 11.0],
+            "vs_avg": [0.8, 1.2, 2.1, 0.5, np.nan],
+        }
+    )
+
+
+def test_payload_slot_plan_section():
+    payload = narrative.build_payload(make_products(), TH, F, window_label="x", slot_plan=make_plan())
+    plan = payload["slot_plan"]
+    assert [g["campaign"] for g in plan] == list(config.CAMPAIGNS)  # config order, not row order
+    bf, cm, dec = plan
+    assert bf["window"] == config.PERIODS["black_friday"].short() and bf["days"] == 4 and cm["days"] == 2
+    assert [s["slot"] for s in bf["slots"]] == [1, 2, 3]
+    assert bf["slots"][0] == {"slot": 1, "name": "Google Cloud Sticker", "code": "G1", "per_1k_views": 15.23,
+                              "x_window_avg": 3.1}
+    assert bf["slots"][2] == {"slot": 3, "name": "Mystery (Item)", "per_1k_views": 8.0, "x_window_avg": 1.5}
+    assert cm["slots"] == [{"slot": 1, "name": "Google Socks", "per_1k_views": 11.0}]  # uncoded, NaN vs_avg
+    assert dec["slots"][0]["code"] == "W2"
+    assert "slot_plan" not in narrative.build_payload(make_products(), TH, F, window_label="x", slot_plan=make_plan().iloc[0:0])
+
+
+def test_payload_alert_windows_are_labelled():
+    extras = make_extras()
+    extras["alerts"] = extras["alerts"].assign(base_label="Pre-holiday baseline", focus_label="December gifting")
+    payload = narrative.build_payload(make_products(), TH, F, window_label="x", **extras)
+    (alert,) = payload["outside_signal"]
+    assert alert["base"] == "Pre-holiday baseline" and alert["focus"] == "December gifting"
+    assert "Google interest in Apparel is up 60% in December gifting" in narrative.rule_based_verdict(payload)
+
+
+def test_verdict_context_on_synthetic_snapshot(synthetic_dir, synthetic_truth):
+    """The pages' holiday-shift and Trends inputs reach the payload with their windows labelled."""
+    data = pytest.importorskip("ga4app.data")
+    snap = data.load_snapshot(synthetic_dir)
+    f = Filters()
+    products, th = data.products(snap, f)
+    payload = narrative.build_payload(products, th, f, window_label="Full season", **data.verdict_context(snap, f))
+    campaign_labels = {config.PERIODS[k].label for k in config.CAMPAIGNS.values()}
+    shifts = payload["holiday_shift"]
+    assert shifts[0]["category"] == "All products"
+    assert {s["base"] for s in shifts} == {"Pre-holiday baseline"} and {s["focus"] for s in shifts} <= campaign_labels
+    alerts = payload["outside_signal"]
+    assert synthetic_truth["trending_group"] in {a["group"] for a in alerts}
+    trend_labels = {config.PERIODS[k].label for k in config.CAMPAIGN_TREND_FOCUS.values()}
+    assert all(a["base"] == "Pre-holiday baseline" and a["focus"] in trend_labels for a in alerts)
+
+
+def test_slot_plan_section_carries_window_evidence_and_undercount():
+    plan = make_plan().assign(views_w=[150, 8, 30, 40, 16], thin_window=[False, True, True, True, True])
+    products = make_products()
+    products["views_undercount"] = products["product_key"] == "g1"
+    payload = narrative.build_payload(products, TH, F, window_label="x", slot_plan=plan)
+    lead = payload["slot_plan"][0]["slots"][0]
+    assert lead["code"] == "G1" and lead["window_views"] == 30
+    assert lead["season_based"] is True and lead["views_undercount"] is True
+    assert payload["slot_plan"][2]["slots"][0] == {"slot": 1, "name": "Google Tee White", "code": "W2",
+                                                   "per_1k_views": 9.88, "x_window_avg": 1.8, "window_views": 150}
+    assert payload["hidden_gems"][0]["views_undercount"] is True and "views_undercount" not in payload["hidden_gems"][1]
+    text = narrative.rule_based_verdict(payload)
+    assert ("- Black Friday: Google Cloud Sticker [G1] leads at 15.2 purchases per 1,000 views (3.1x the window "
+            "average) on just 30 window views, so mostly its full-season rate, then") in text
+    watch = [line for line in text.splitlines() if line.startswith("Watch-outs:")]
+    assert len(watch) == 1 and "Google Cloud Sticker [G1] has at least one checkout event for every two" in watch[0]
+    assert narrative.unknown_citations(text, payload) == []
+    for key in ("window_views", "season_based", "views_undercount"):
+        assert key in narrative.SYSTEM_PROMPT
+
+
+def test_watch_outs_name_undercounted_feature_picks():
+    products = make_products()
+    products["views_undercount"] = products["product_key"].isin(["g1", "g3"])
+    text = narrative.rule_based_verdict(narrative.build_payload(products, TH, F, window_label="x"))
+    assert "Google Cloud Sticker [G1] and YouTube Mug [G3] have at least one checkout event" in text.splitlines()[-1]
+    plain = narrative.rule_based_verdict(narrative.build_payload(make_products(), TH, F, window_label="x"))
+    assert plain.splitlines()[-1] == narrative._WATCH_OUTS
+
+
 def test_payload_top_n():
     payload = narrative.build_payload(make_products(), TH, F, window_label="x", top_n=1)
     assert [e["code"] for e in payload["hidden_gems"]] == ["G1"]
@@ -270,6 +355,23 @@ def test_rule_based_verdict_with_nothing_qualifying():
     assert re.findall(r"\[[A-Z]\d+\]", text) == []
 
 
+def test_rule_based_verdict_on_slot_plan():
+    payload = narrative.build_payload(make_products(), TH, F, window_label="x", slot_plan=make_plan(), **make_extras())
+    text = narrative.rule_based_verdict(payload)
+    lines = text.splitlines()
+    assert lines[0].startswith(
+        "**Verdict:** Run the plan: lead Black Friday with Google Cloud Sticker [G1], Cyber Monday with "
+        "Google Socks and December gifting with Google Tee White [W2]. Retire Google Campus Bottle [X1]"
+    )
+    bullets = [line for line in lines if line.startswith("- ")]
+    assert bullets[0] == ("- Black Friday: Google Cloud Sticker [G1] leads at 15.2 purchases per 1,000 views "
+                          "(3.1x the window average), then Google Hoodie Navy [W1] and Mystery (Item).")
+    assert bullets[1] == "- Cyber Monday: Google Socks leads at 11.0 purchases per 1,000 views."
+    assert len(bullets) == narrative.MAX_BULLETS  # one per campaign, then the two strongest signals
+    assert "Cannibalization" in text and "Outside signal" in text
+    assert narrative.unknown_citations(text, payload) == []
+
+
 def test_rule_based_verdict_on_hand_built_payload():
     payload = {
         "scope": {"avg_conversion_pct": 0.5, "min_views": 100},
@@ -317,10 +419,15 @@ def test_build_messages(payload):
     system, user = narrative.build_messages(payload)
     assert system == {"role": "system", "content": narrative.SYSTEM_PROMPT}
     assert user["role"] == "user"
+    assert user["content"].startswith("Write the homepage verdict for this scope. JSON:\n")
     assert json.loads(user["content"].split("\n", 1)[1]) == payload
     for phrase in ("Use ONLY the JSON", "purchases / product views", "12 products per page view",
-                   "**Verdict:**", "Watch-outs:", "170 words", "evidence is thin", "Mobile-first or Desktop-first"):
+                   "**Verdict:**", "Watch-outs:", "170 words", "evidence is thin", "Mobile-first or Desktop-first",
+                   "holiday_shift:", "outside_signal:", "slot_plan:", "Run the plan", "without brackets"):
         assert phrase in narrative.SYSTEM_PROMPT
+    plan_payload = narrative.build_payload(make_products(), TH, F, window_label="x", slot_plan=make_plan())
+    _, plan_user = narrative.build_messages(plan_payload)
+    assert plan_user["content"].startswith("Write the verdict on this homepage slot plan. JSON:\n")
 
 
 # --------------------------------------------------------------------------- verdict_stream

@@ -70,7 +70,7 @@ ui.header(
 
 pair = st.selectbox("Compare", list(config.COMPARISONS), format_func=_label, key=COMPARE_KEY,
                     help="The first window is the base. Only about 3 pre-holiday weeks exist (data starts Nov 1), "
-                         "so a 4-week January baseline is offered as an alternative.")
+                         "so a January baseline of the same length (Jan 4-25) is offered as an alternative.")
 base_key, focus_key = pair or config.COMPARISONS[0]
 base, focus = config.PERIODS[base_key], config.PERIODS[focus_key]
 
@@ -84,22 +84,28 @@ b_row = site[site["period"] == base_key].iloc[0]
 f_row = site[site["period"] == focus_key].iloc[0]
 
 
+base_short, focus_short = charts.short_label(base_key), charts.short_label(focus_key)
+
+
 def _rel(new: float, old: float) -> str | None:
-    return f"{100 * (new / old - 1):+.0f}% vs {base.label.lower()}" if old > 0 else None
+    return f"{100 * (new / old - 1):+.0f}% vs {base_short.lower()}" if old > 0 else None
 
 
+# Short window names keep the tile labels from being cut off; the full names are in each tile's help.
 p_site = f_row["p_value"]
 sig = "significant (p < 0.05)" if pd.notna(p_site) and p_site < 0.05 else "not significant"
 ui.kpi_row([
-    {"label": f"Conversion · {base.label}", "value": ui.pct(b_row["cr"]), "help": f"{base.short()}, {base.days} days."},
-    {"label": f"Conversion · {focus.label}", "value": ui.pct(f_row["cr"]),
-     "delta": f"{100 * (f_row['cr'] - b_row['cr']):+.2f} pts", "help": f"Change vs the base window is {sig}."},
-    {"label": f"Product views / day · {focus.label}", "value": f"{f_row['views_per_day']:,.0f}",
+    {"label": f"Conversion · {base_short}", "value": ui.pct(b_row["cr"]),
+     "help": f"{base.label}: {base.short()}, {base.days} days."},
+    {"label": f"Conversion · {focus_short}", "value": ui.pct(f_row["cr"]),
+     "delta": f"{100 * (f_row['cr'] - b_row['cr']):+.2f} pts",
+     "help": f"{focus.label}: {focus.short()}, {focus.days} days. Change vs the base window is {sig}."},
+    {"label": f"Views/day · {focus_short}", "value": f"{f_row['views_per_day']:,.0f}",
      "delta": _rel(f_row["views_per_day"], b_row["views_per_day"]),
-     "help": f"{base.label}: {b_row['views_per_day']:,.0f} per day."},
-    {"label": f"Purchases / day · {focus.label}", "value": f"{f_row['purchases_per_day']:,.1f}",
+     "help": f"Product views per day in {focus.label}; {base.label}: {b_row['views_per_day']:,.0f} per day."},
+    {"label": f"Purchases/day · {focus_short}", "value": f"{f_row['purchases_per_day']:,.1f}",
      "delta": _rel(f_row["purchases_per_day"], b_row["purchases_per_day"]),
-     "help": f"{base.label}: {b_row['purchases_per_day']:,.1f} per day."},
+     "help": f"Purchases per day in {focus.label}; {base.label}: {b_row['purchases_per_day']:,.1f} per day."},
 ])
 
 # Daily line with both windows shaded.
@@ -109,7 +115,8 @@ ui.chart_with_table(
     charts.daily_conversion(daily, [base, focus]),
     daily.assign(cr_pct=100 * daily["cr"]).drop(columns="cr"), key=f"{P}daily", file_name="holiday_shift_daily.csv",
     caption="Purchases per product view each day. Shaded bands are the two windows being compared. "
-            "Purchases surge from Nov 23 and collapse after the Dec 18 shipping cutoff.",
+            "Purchases surge from Nov 23 and collapse after the Dec 18 shipping cutoff. The grey band at the end "
+            f"(after {config.ITEM_DATA_END:%b %d}) has no item-level purchases in the sample, so the line stops there.",
 )
 
 # The pitch chart: conversion by category, focus vs base.
@@ -234,8 +241,9 @@ with st.expander("Caveats for this page"):
         "so this page compares purchases per product view only, never cart rates.",
         "- The windows come from the data: purchases surged on Nov 23 (before Thanksgiving) and collapsed after "
         "the Dec 18 shipping cutoff.",
-        "- Only about 3 pre-holiday weeks exist (data starts Nov 1). The January 4-week baseline is the alternative, "
-        "and January demand is not the same as November demand, so treat both baselines as approximate.",
+        "- Only about 3 pre-holiday weeks exist (data starts Nov 1). The January baseline (Jan 4-25, the same 22 days) "
+        "is the alternative, and January demand is not the same as November demand, so treat both baselines as "
+        "approximate. It stops at Jan 25 because the sample's purchases carry no products after that day.",
         "- Lifts are tested with a two-proportion z-test; 'shifts more than the rest' compares the category's change "
         "with the rest of the store pooled. Categories with fewer than 10 purchases in a window are not tested.",
     ])))

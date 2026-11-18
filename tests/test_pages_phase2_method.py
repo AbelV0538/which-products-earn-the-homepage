@@ -99,4 +99,5 @@ def test_real_data_smoke(monkeypatch, real_data_dir):
 
 def test_data_method_shows_raw_m_on_real_data(monkeypatch, real_data_dir):
     text = _text(_page(monkeypatch, real_data_dir, PAGES[2]))
-    assert "floored at 100 for stability" in text and "estimated at about 70" in text
+    # About 66 on the season through Jan 25 (70 when the item-less Jan 26-31 days were still counted).
+    assert "floored at 100 for stability" in text and "estimated at about 66" in text

@@ -35,6 +35,20 @@ This is the detailed design behind the approved plan. **The adjustments in this 
     - **Google Trends.** pytrends served all 13 keywords; trendspy was rate-limited (HTTP 429).
     - **Shrinkage strength m.** The raw method-of-moments estimate is about 70; it is floored at 100 (`metrics.prior_strength_raw` exposes the raw value).
 9. **Shrinkage strength `m` is computed at runtime.** `metrics.estimate_prior_strength` runs over full-season, all-device data and is cached per data version (`data.get_snapshot`). `manifest.shrinkage_m` is optional.
+11. **Improvements, 2026-11-17.** These override the sections below where they differ.
+    - **Item-data cut.** From Jan 26, 2021 the sample's purchase events carry no items (site purchase events stay at 19–69 a day; item-level purchases fall to 53, 12, 10, 16, 11, 0). `config.ITEM_DATA_END = 2021-01-25`.
+      - `data.load_snapshot` drops item rows after it and keeps per-day totals in `Snapshot.item_daily_totals` for Data & Method.
+      - `PERIODS["full"]` and `PERIODS["january"]` end on it. `january_4wk` keeps its key but is now "January baseline", Jan 4–25 (22 days, like the pre-holiday baseline).
+      - `PERIODS["export"]` (Nov 1 – Jan 31) is the raw extent, used only for site-level checks such as the pitch's 1.47%.
+      - `Filters().end` defaults to the cut. The sidebar date picker stops there. Item-level charts that reach the cut show a grey band to Jan 31.
+      - `verify_snapshots.py` hard-checks that every day up to the cut has ≥ 1 item purchase row per site purchase event and every later day has fewer.
+      - Effect on the real data: average conversion 0.547% → 0.570%; raw `m` ≈ 70 → 66; 14 quadrant changes; SF Campus Tote drops below 200 views; two cannibalization pairs become "Possible" (q = 0.29).
+    - **Campaign score evidence.** `metrics.campaign_scores` adds `ci_low` / `ci_high` (80% interval of the same Beta posterior), `window_weight = V_w/(V_w + m)` and `thin_window = window_weight < 0.5`. Slot cards show the range and a "Mostly season evidence" badge. `charts.slot_candidates` plots each campaign's top candidates with their ranges.
+    - **Under-counted views.** `metrics.shrink` adds `checkouts` and `views_undercount` (checkouts ≥ `config.UNDERCOUNT_RATIO` = 0.5 × views; both are now in `types.PRODUCT_COLUMNS`). It is a flag only: Feature Picks tables, the inspector, slot cards and the verdict's Watch-outs show it.
+    - **Pinned and excluded products.** `metrics.slot_plan(..., must_include=...)` places each pinned product in the campaign where it scores best (respecting room, conflicts and repeats), then fills greedily. Each campaign's slots are numbered by score, a `pinned` column marks pins, and `out.attrs["unplaced"]` lists pins that could not be placed. `state.PINNED` / `state.EXCLUDED` hold the lists.
+    - **Shareable URLs** (replaces adjustment 2). `state.load_query_params` seeds the filters from `?preset=`, `start=`/`end=`, `dev=`, `cat=` and `minv=` once per session. `state.sync_query_params` rewrites the URL after each run, leaving defaults out. `bind="query-params"` stays unused.
+    - **Charts.** The Feature Picks scatter has a log conversion axis (the default; linear remains), so the top converters are no longer clipped. `charts.device_bars` adds the inspector's per-device bars. The heatmap shows "–" for tablet cells under 30 views and drops the lean column when no product leans. `ui.chart_with_table` passes its caption as the chart's `alt` text.
+    - **Narrative.** `PROMPT_VERSION = "verdict-2026-11-17.1"`. Slots carry `window_views`, `season_based` and `views_undercount`; entries carry `views_undercount`. The rule-based plan bullet says when a lead slot rests on few window views, and Watch-outs name under-counted picks.
 
 ## Real-data findings (BigQuery profiling, 2026-10-20) — these override the assumptions below
 
@@ -808,10 +822,12 @@ FROM pr GROUP BY 1,2,3,4,5,6,7,8,9,10;
 **Payload** (compact JSON, rounded numbers)
 - `prompt_version` and `scope`: date start/end, window label, devices, categories, min views, eligible count, average conversion, views threshold and rule.
 - `winners`, `hidden_gems`, `wasted_exposure`: top 5 each. Each entry has code, name, category, views, purchases, conversion, adjusted conversion, comparison with average, revenue, device lean, and either `lift_per_1k` or `forgone`.
-- `holiday_shift`: base vs focus category lifts, significant ones only.
+- `holiday_shift`: each campaign window vs the pre-holiday baseline, site-wide and per category, significant ones only (`data.holiday_shift`).
 - `device`: rate per device.
-- `outside_signal`: flagged categories only.
+- `outside_signal`: flagged categories only, each labelled with its base and focus window (`data.campaign_alerts`: the Trends window of each campaign).
 - `cannibalization`: flagged pairs among the picks.
+- `slot_plan` (Slot plan page only): per campaign, its window, days and slots (name, code when coded, `per_1k_views`, `x_window_avg`). The prompt then asks for a verdict on the plan, and the rule-based verdict summarises each campaign's lead slot.
+- Both pages get `holiday_shift` and `outside_signal` through `data.verdict_context`.
 - `caveats`: no placement data (candidates, not causation); no inventory or margin data; add-to-cart not tracked before Nov 26.
 
 **System prompt outline**
@@ -1015,9 +1031,12 @@ def make_synthetic_snapshots(out_dir: Path, *, n_products: int = 240, seed: int 
 
 # data.py
 @dataclass(frozen=True) class Snapshot: item_daily; product_dim; site_daily; site_funnel|None; promo_daily|None;
-                                         trends_daily|None; overview: dict; profile: dict; manifest: dict; version: str
+                                         trends_daily|None; overview: dict; profile: dict; manifest: dict; version: str;
+                                         item_daily_totals|None   # per day, before the ITEM_DATA_END cut
 def resolve_data_dir() -> Path
-def load_snapshot(data_dir: Path) -> Snapshot          # pure; validates; converts dtypes
+def split_item_daily(item_daily) -> tuple[pd.DataFrame, pd.DataFrame]  # (rows <= ITEM_DATA_END, per-day totals)
+def load_snapshot(data_dir: Path) -> Snapshot          # pure; validates; converts dtypes; drops rows after the cut
+def product_devices(snapshot, key: str, f: Filters) -> pd.DataFrame  # one product's device_matrix rows
 def get_snapshot() -> Snapshot                          # st.cache_resource(data_dir, manifest sha)
 
 # taxonomy.py
@@ -1043,7 +1062,7 @@ def device_matrix(item_daily, product_dim, keys: Sequence[str], f: Filters, m: f
 def device_lean(matrix, *, rr_hi=1.25, rr_lo=0.8, alpha=0.10, min_purchases=10) -> pd.DataFrame
 def campaign_scores(item_daily, product_dim, campaign: Period, f: Filters, m: float) -> pd.DataFrame
 def slot_plan(scores: Mapping[str, pd.DataFrame], n_slots: Mapping[str, int], *, conflicts=frozenset(),
-              exclude=frozenset(), allow_repeats=False) -> pd.DataFrame
+              exclude=frozenset(), must_include=(), allow_repeats=False) -> pd.DataFrame  # attrs["unplaced"]
 # products frame columns: product_key,item_name,category_group,brand,views,purchases,units,revenue_usd,promo_views,
 #   cr_raw,prior_mean,cr_adj,ci_low,ci_high,confidence,eligible,quadrant,forgone_purchases,lift_per_1k,rpv,action_rank,code,
 #   views_share,purchases_exceed_views
@@ -1059,10 +1078,11 @@ def trending_alerts(trends_daily, item_daily, product_dim, keyword_map, base, fo
 def lead_lag(index_df, max_lag: int = 3) -> pd.DataFrame
 
 # charts.py  (all return plotly.graph_objects.Figure)
-def quadrant_scatter(products, th, *, y="cr_raw", size="revenue_usd", color_map, highlight=None)
+def quadrant_scatter(products, th, *, y="cr_raw", size="revenue_usd", color_map, highlight=None, y_scale="linear")
 def period_bars(period_df); def daily_conversion(daily, periods); def transition_matrix(movers)
 def device_heatmap(matrix, lean); def trends_small_multiples(index_df, periods); def spike_share(spikes, key, periods)
 def rr_dotplot(tests); def product_timeline(daily_one, periods)
+def slot_candidates(scores, picked=(), *, top=12); def device_bars(matrix_one); def short_label(key) -> str
 
 # llm.py
 @dataclass class StreamEvent: kind: Literal["text","meta","error","done"]; text: str = ""; model: str | None = None;
@@ -1075,7 +1095,7 @@ def stream_chat(messages, *, api_key, model, fallbacks=(), max_tokens=4000, reas
 
 # narrative.py
 PROMPT_VERSION: str; SYSTEM_PROMPT: str; DEFAULT_CAVEATS: tuple[str, ...]
-def build_payload(products, th, f, *, window_label, period_shift=None, device_lean=None, alerts=None, cannibal=None, top_n=5) -> dict
+def build_payload(products, th, f, *, window_label, period_shift=None, device_lean=None, alerts=None, cannibal=None, top_n=5, device_summary=None, slot_plan=None) -> dict  # slot_plan may carry views_w / thin_window; products may carry views_undercount
 def cache_key(payload: dict, model: str) -> str
 def rule_based_verdict(payload: dict) -> str
 def unknown_citations(text: str, payload: dict) -> list[str]
@@ -1094,6 +1114,7 @@ def run_to_arrow(client, sql: str, *, cap_bytes: int, labels: dict) -> tuple["pa
 
 # state.py / ui.py (Streamlit only)
 def render_sidebar(snapshot, page_id: str) -> Filters;  def current_filters() -> Filters
+def load_query_params() -> None;  def sync_query_params() -> None;  def query_params_for(f, preset) -> dict
 def verdict_block(payload: dict, *, key_prefix: str) -> None;  def data_table(df, *, key, column_config, on_select=None)
 def chart_with_table(fig, df, *, key, alt, on_select=None);  def product_inspector(snapshot, f, key: str | None)
 ```

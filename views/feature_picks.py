@@ -11,7 +11,8 @@ P = "fp_"
 SCATTER_KEY = f"{P}scatter"
 Y_OPTIONS = {"Raw": "cr_raw", "Adjusted": "cr_adj"}
 SIZE_OPTIONS = {"Revenue": "revenue_usd", "Orders": "purchases"}
-RULE_LABELS = {"median": "Median", "p75": "75th percentile", "p90": "90th percentile"}
+SCALE_OPTIONS = ("Log", "Linear")
+RULE_LABELS = {"median": "Median", "p75": "Top 25%", "p90": "Top 10%"}  # by views: the 75th / 90th percentile
 
 snapshot = data.get_snapshot()
 f = state.current_filters()
@@ -25,15 +26,18 @@ ui.header(
 )
 
 # One row of page controls.
-c1, c2, c3, c5 = st.columns([1.1, 2.0, 1.6, 1.2])
+c1, c6, c2, c3, c5 = st.columns([1.2, 1.0, 1.9, 1.7, 1.3])
 y_label = c1.segmented_control("Conversion axis", list(Y_OPTIONS), default="Raw", key=f"{P}y",
                                help="Adjusted = shrunk toward the category average so low-traffic products don't look extreme.")
+y_scale = c6.segmented_control("Scale", list(SCALE_OPTIONS), default="Log", key=f"{P}scale",
+                               help="Log shows every product, including the top converters a linear axis has to clip.")
 rule = c2.segmented_control("High-traffic cutoff", list(config.VIEWS_RULES), default="median", key=f"{P}rule",
                             format_func=RULE_LABELS.get)
 color_mode = c3.segmented_control("Colour by", ["Category", "Highlight one"], default="Category", key=f"{P}color")
 size_label = c5.segmented_control("Bubble size", list(SIZE_OPTIONS), default="Revenue", key=f"{P}size",
                                   help="Orders = purchases.")
 y_col = Y_OPTIONS.get(y_label or "Raw", "cr_raw")
+y_scale = (y_scale or "Log").lower()
 rule = rule or "median"
 
 products, th = data.products(snapshot, f, views_rule=rule, y=y_col)
@@ -49,6 +53,7 @@ lean = data.device_lean(snapshot, codes, f)
 payload = narrative.build_payload(
     products, th, f, window_label=window_label, device_lean=lean,
     device_summary=data.device_summary(snapshot, f), cannibal=data.season_cannibal(snapshot),
+    **data.verdict_context(snapshot, f),
 )
 ui.verdict_block(payload, key_prefix=P)
 
@@ -60,7 +65,7 @@ ui.kpi_row([
     {"label": "Eligible products", "value": f"{len(eligible):,}",
      "help": f"Products with at least {f.min_views:,} views in scope; only these are ranked."},
     {"label": "Average conversion", "value": ui.pct(th.conversion),
-     "delta": None if (f.start, f.end) == (config.DATA_START, config.DATA_END) else f"{100 * delta:+.2f} pts vs full season",
+     "delta": None if (f.start, f.end) == (data.FULL_PERIOD.start, data.FULL_PERIOD.end) else f"{100 * delta:+.2f} pts vs full season",
      "help": "Purchases ÷ product views over every product in scope."},
     {"label": "Product views", "value": f"{int(products['views'].sum()):,}"},
     {"label": "Purchases", "value": f"{int(products['purchases'].sum()):,}"},
@@ -78,13 +83,15 @@ def _inspect_point() -> None:
 left, right = st.columns([2.3, 1])
 with left:
     fig = charts.quadrant_scatter(products, th, y=y_col, size=SIZE_OPTIONS.get(size_label or "Revenue", "revenue_usd"),
-                                  color_map=snapshot.category_colors, highlight=highlight)
+                                  color_map=snapshot.category_colors, highlight=highlight, y_scale=y_scale)
     cols = ["code", "product_key", "item_name", "category_group", "views", "purchases", "cr_raw", "cr_adj", "revenue_usd", "quadrant"]
     ui.chart_with_table(
         fig, eligible[cols], key=SCATTER_KEY, on_select=_inspect_point, file_name="feature_picks_quadrants.csv",
         caption=(f"Each bubble is a product. Right of the dashed line = high traffic ({RULE_LABELS[rule].lower()}, "
                  f"{th.views:,.0f} views); above the other dashed line = converts better than the {ui.pct(th.conversion)} average. "
-                 "Faded bubbles have too few views to be sure. Click a bubble to inspect it."),
+                 "Faded bubbles have too few views to be sure. "
+                 + ("Both axes are log scale, so each gridline step is a multiple, not a fixed amount. " if y_scale == "log" else "")
+                 + "Click a bubble to inspect it."),
     )
 with right:
     ui.product_inspector(snapshot, f, st.session_state.get(state.INSPECT))
@@ -103,6 +110,8 @@ def _table(frame: pd.DataFrame, extra: str | None) -> pd.DataFrame:
             fl.append("uncertain")
         if bool(r.purchases_exceed_views):
             fl.append("purchases > views")
+        if bool(r.views_undercount):
+            fl.append("views under-counted")
         if r.product_key in conflict_keys:
             fl.append("cannibal pair")
         flags.append(", ".join(fl))
@@ -141,7 +150,9 @@ COLUMNS = {
     "lift_per_1k": st.column_config.NumberColumn("Extra purchases / 1k views", format="%.2f"),
     "forgone_purchases": st.column_config.NumberColumn("Forgone purchases", format="%.1f"),
     "lean": "Device lean",
-    "flags": "Flags",
+    "flags": st.column_config.TextColumn(
+        "Flags", help="uncertain: interval overlaps the average · views under-counted: checkout events reach half its "
+                      "product views, so its rate is likely overstated · cannibal pair: see Cannibalization Check"),
 }
 
 TABS = (
