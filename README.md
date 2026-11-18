@@ -34,6 +34,8 @@ py -3.13 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 ```
 
+On Windows, keep the project in a short folder path, such as `C:\Users\you\homepage`. Streamlit installs some deeply nested files, and Windows limits paths to 260 characters unless long paths are turned on, so a long path (for example a ZIP extracted into `…\which-products-earn-the-homepage-main\which-products-earn-the-homepage-main`) can make the install fail.
+
 macOS or Linux:
 
 ```bash
@@ -41,7 +43,7 @@ python3.13 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-These commands call the environment's own Python, so there is nothing to activate. If `py -3.13` or `python3.13` is not found, use `python -m venv .venv` (Windows) or `python3 -m venv .venv` (macOS or Linux) instead, as long as that Python is 3.11–3.14. With conda instead: `conda create -n homepage python=3.13 -y`, then `conda activate homepage` and `pip install -r requirements.txt`.
+These commands call the environment's own Python, so there is nothing to activate. If `py -3.13` or `python3.13` is not found, use `python -m venv .venv` (Windows) or `python3 -m venv .venv` (macOS or Linux) instead, as long as that Python is 3.11–3.14. With conda instead: `conda create -n homepage python=3.13 -y`, then `conda activate homepage` and `pip install -r requirements.txt`; in step 3, run plain `streamlit run app.py` in that activated environment.
 
 **3. Start the app.**
 
@@ -50,7 +52,7 @@ These commands call the environment's own Python, so there is nothing to activat
 .venv/bin/python -m streamlit run app.py          # macOS or Linux
 ```
 
-The app opens in your browser at <http://localhost:8501> (if it doesn't, open that address yourself). **The first page takes about 20 seconds** while it loads the data and runs the cannibalization tests once; after that, pages switch in about a second. Stop the app with **Ctrl+C** in the terminal. To start it again later, run step 3 from the same folder.
+The app opens in your browser at <http://localhost:8501> (if it doesn't, open that address yourself). **The first page takes 20–30 seconds** while it loads the data and runs the cannibalization tests once; after that, pages switch in about a second. Stop the app with **Ctrl+C** in the terminal. To start it again later, run step 3 from the same folder.
 
 Tested on 2026-11-17 by following these steps from a fresh clone on Windows with Python 3.13; all 7 pages load. The packages also install from ready-made wheels on macOS (Apple silicon and Intel) and Linux, for Python 3.11 to 3.14.
 
