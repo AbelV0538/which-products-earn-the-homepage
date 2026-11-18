@@ -28,6 +28,24 @@ def _markdown(at: AppTest) -> str:
     return "\n".join(m.value for m in at.markdown)
 
 
+def _scatter_spec(at: AppTest) -> dict:
+    """The Feature Picks scatter's Plotly JSON (the chart with the quadrant badges)."""
+    import json
+
+    specs = [json.loads(c.proto.spec) for c in at.get("plotly_chart")]
+    return next(s for s in specs if any(a.get("name") == "badge:Winners" for a in s["layout"].get("annotations", [])))
+
+
+def _note_names(at: AppTest) -> list[str]:
+    return [a["name"] for a in _scatter_spec(at)["layout"]["annotations"] if str(a.get("name", "")).startswith("note:")]
+
+
+def _note_lines(at: AppTest) -> list[str]:
+    import re
+
+    return [m.value for m in at.markdown if re.match(r"^\*\*\d( !)?\*\* ", m.value)]
+
+
 def test_feature_picks_smoke(monkeypatch, synthetic_dir):
     at = _run(monkeypatch, synthetic_dir)
     assert len(at.metric) >= 5
@@ -154,3 +172,29 @@ def test_slot_plan_pins_and_exclusions(monkeypatch, synthetic_dir):
     assert lead not in card_names(at)  # excluded
     assert data.name_of(snap, weak) in card_names(at)  # pinned into a slot
     assert list(at.session_state["sp_include"]) == [weak] and list(at.session_state["sp_exclude"]) == [key_of[lead]]
+
+
+def test_chart_notes_toggle_draws_rule_based_notes(monkeypatch, synthetic_dir):
+    at = _run(monkeypatch, synthetic_dir)
+    assert at.toggle(key="fp_notes_on").value is False  # off by default
+    assert _note_names(at) == [] and _note_lines(at) == []
+    at.toggle(key="fp_notes_on").set_value(True).run()
+    assert not at.exception, [e.value for e in at.exception]
+    names = _note_names(at)
+    assert names and set(names) == {"note:rule"}
+    lines = _note_lines(at)
+    assert len(lines) == len(names) and lines[0].startswith("**1")
+    assert any("Rule-based notes" in c.value for c in at.caption)
+
+
+def test_chart_note_inspect_button_sets_the_inspector(monkeypatch, synthetic_dir):
+    at = _run(monkeypatch, synthetic_dir)
+    at.toggle(key="fp_notes_on").set_value(True).run()
+    at.button(key="fp_note_inspect_1").click().run()
+    assert not at.exception, [e.value for e in at.exception]
+    from ga4app import data
+
+    key = at.session_state["inspect_key"]
+    assert key and any(b.label == "Add to slot plan" for b in at.button)
+    name = data.name_of(data.load_snapshot(synthetic_dir), key)
+    assert name in _note_lines(at)[0]  # the product the first note names

@@ -55,13 +55,15 @@ class AnchorSet:
 
     ``anchors`` are ``{"id": ..., **facts}`` dicts in display order; ``scope`` holds the chart-wide
     numbers (window, filters, the average) that any note may quote; ``empty`` is the caption
-    shown when there is nothing to point out.
+    shown when there is nothing to point out. ``keys`` maps an anchor ID to its product key for
+    the page (the inspector); it is never sent to the model.
     """
 
     chart: str
     scope: dict[str, Any]
     anchors: list[dict[str, Any]] = field(default_factory=list)
     empty: str = "Nothing on this chart to point out."
+    keys: dict[str, str] = field(default_factory=dict)
 
     @property
     def question(self) -> str:
@@ -95,7 +97,7 @@ def scatter_anchors(payload: Mapping[str, Any], products: pd.DataFrame,
         key_of = {narrative._text(c): narrative._text(k) for c, k in zip(eligible["code"], eligible["product_key"])
                   if narrative._text(c)}
     conflicts = {str(k) for k in conflict_keys}
-    anchors = []
+    anchors, keys = [], {}
     for quadrant, section in narrative._SECTIONS:
         for entry in payload.get(section) or []:
             code = str(entry.get("code") or "")
@@ -107,10 +109,13 @@ def scatter_anchors(payload: Mapping[str, Any], products: pd.DataFrame,
             if key_of[code] in conflicts:
                 anchor["cannibal_pair"] = True
             anchors.append(anchor)
+            keys[code] = key_of[code]
+    anchors = anchors[:SCATTER_ANCHORS_MAX]
     scope_in = payload.get("scope") or {}
     scope = {k: scope_in[k] for k in SCATTER_SCOPE if scope_in.get(k) is not None}
-    return AnchorSet(CHART_SCATTER, scope, anchors[:SCATTER_ANCHORS_MAX],
-                     empty="No product has a code in this scope, so there is nothing to point out.")
+    return AnchorSet(CHART_SCATTER, scope, anchors,
+                     empty="No product has a code in this scope, so there is nothing to point out.",
+                     keys={a["id"]: keys[a["id"]] for a in anchors})
 
 
 # --------------------------------------------------------------------------- number check

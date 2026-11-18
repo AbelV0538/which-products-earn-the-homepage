@@ -91,6 +91,7 @@ def test_scatter_anchors_are_the_coded_eligible_products(scatter, products):
     assert scatter.by_id["X1"]["forgone_purchases"] == 176.0
     assert scatter.scope == {"window": "Cyber Week", "filters": F.label(), "avg_conversion_pct": 0.5,
                              "views_threshold": 1000}
+    assert scatter.keys == {"W1": "w1", "W2": "w2", "G1": "g1", "G2": "g2", "X1": "x1"}
 
 
 def test_scatter_anchors_skip_uncoded_and_ineligible_products(products):
