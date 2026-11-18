@@ -24,14 +24,9 @@ Rule-based notes work without an API key, as the rule-based verdict does today.
 
 **Not in v1:** the other charts (daily line, Trends small multiples, transition matrix, Slot Plan candidates, relative-risk dot plot), auto-writing on filter change, and free-text questions.
 
-## 2. Before step 1: the uncommitted work on `main`
+## 2. Before step 1: the uncommitted work on `main` (done)
 
-This branch was created while 28 files on `main` had uncommitted changes (`ga4app/charts.py`, `ui.py`, `narrative.py`, the views, tests, README, DESIGN). This plan is written against that working tree, and every step below edits those same files.
-
-1. Commit that work to `main`.
-2. Rebase this branch onto it: `git switch feature/ai-chart-notes && git rebase main`.
-
-Otherwise the feature's diff gets mixed with unrelated changes.
+This plan was written against work that was uncommitted on `main` at the time (`ga4app/charts.py`, `ui.py`, `narrative.py`, the views, tests, README, DESIGN). That work is now commit `1414094` on `main`, and this branch is rebased onto it, so the branch holds only this plan. Start at step 1.
 
 ## 3. Design
 
@@ -257,7 +252,7 @@ Each step is one commit, and the suite stays green after each.
 
 | Step | Work | Done when |
 |---|---|---|
-| 0 | Commit the work in progress to `main`, then rebase this branch onto it (section 2). | the branch has only this plan on top of `main` |
+| 0 | ~~Commit the work in progress to `main`, then rebase this branch onto it (section 2).~~ Done. | the branch has only this plan on top of `main` |
 | 1 | `ChartNote` type, `_draw_notes`, `notes=` on `quadrant_scatter` | placement tests pass; figures unchanged without notes |
 | 2 | `annotate.py`: scatter anchors, `rule_based_notes`, `validate_notes` with the number check | `test_annotate.py` scatter tests pass |
 | 3 | UI helpers and Feature Picks wiring, rule-based only | AppTest: the toggle draws notes and the list |
