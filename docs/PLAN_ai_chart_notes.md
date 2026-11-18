@@ -1,6 +1,15 @@
 # Plan: AI chart notes
 
-**Branch:** `feature/ai-chart-notes` · **Status:** planned, not started · **Written:** 2026-11-17
+**Branch:** `feature/ai-chart-notes` · **Status:** built (steps 1–4 and 6–8); step 5, the live OpenRouter run, still to do · **Written:** 2026-11-17
+
+> **As built.** The implementation and the decisions made while building it are in [DESIGN.md section 7b](DESIGN.md#7b-ai-chart-notes-ga4appannotatepy-charts_draw_notes-uichart_notes_). Differences from this plan:
+>
+> - `ui.chart_notes_controls(anchors, rule_notes=None, *, key_prefix)`: the chart ID travels inside `annotate.AnchorSet`, which also holds the scope, the empty-chart caption and the anchor → product key map for Inspect (never sent to the model).
+> - Raw/Adjusted is not purely a display control here: quadrants are classified on the plotted metric. On both snapshots it gives the same coded products, so the anchors and the cache key do not change; if it ever re-codes products, the notes are rewritten, which is correct.
+> - "Write AI notes" also turns the toggle on.
+> - Heatmap anchor IDs come from `charts.heatmap_cells(matrix, codes=...)`, so `device_heatmap` takes `codes` too; `R<row>` is the 1-based row number. The 30-anchor cap keeps strong-lean products' cells first, so they are never cut.
+> - The Holiday Shift scope carries `significance_level: 0.05`, so a note may say "p < 0.05"; rule-based bar notes write the lift rounded like the bar's own label.
+> - Validation keeps the first four notes before the number check, as in 3.3, and shortens text at a word boundary so a number is never cut.
 
 ## 1. Goal
 
@@ -253,14 +262,14 @@ Each step is one commit, and the suite stays green after each.
 | Step | Work | Done when |
 |---|---|---|
 | 0 | ~~Commit the work in progress to `main`, then rebase this branch onto it (section 2).~~ Done. | the branch has only this plan on top of `main` |
-| 1 | `ChartNote` type, `_draw_notes`, `notes=` on `quadrant_scatter` | placement tests pass; figures unchanged without notes |
-| 2 | `annotate.py`: scatter anchors, `rule_based_notes`, `validate_notes` with the number check | `test_annotate.py` scatter tests pass |
-| 3 | UI helpers and Feature Picks wiring, rule-based only | AppTest: the toggle draws notes and the list |
-| 4 | AI call: prompt, `ai_notes`, fake responder, cache, "Write AI notes" button | AppTest with the fake transport passes |
-| 5 | **Manual:** live run against OpenRouter with Claude Opus 5.5 and one free model. Record the cost per call, how often notes are dropped and why, and the latency. Tune the prompt and bump `NOTES_PROMPT_VERSION`. | numbers recorded in DESIGN.md; the cost note shown in the UI |
-| 6 | Holiday Shift: anchors, bar placement, wiring, tests | tests pass; screenshot checked for overlap with lift labels |
-| 7 | Device Split: `heatmap_cells` refactor, anchors, cell placement, wiring, tests | tests pass; heatmap colours unchanged |
-| 8 | Docs: DESIGN.md section "AI chart notes", README feature and screenshots, "What is still missing" | then open a PR to `main` |
+| 1 | ~~`ChartNote` type, `_draw_notes`, `notes=` on `quadrant_scatter`~~ Done. | placement tests pass; figures unchanged without notes |
+| 2 | ~~`annotate.py`: scatter anchors, `rule_based_notes`, `validate_notes` with the number check~~ Done. | `test_annotate.py` scatter tests pass |
+| 3 | ~~UI helpers and Feature Picks wiring, rule-based only~~ Done. | AppTest: the toggle draws notes and the list |
+| 4 | ~~AI call: prompt, `ai_notes`, fake responder, cache, "Write AI notes" button~~ Done. | AppTest with the fake transport passes |
+| 5 | **Manual, still to do:** live run against OpenRouter with Claude Opus 5.5 and one free model. Record the cost per call, how often notes are dropped and why, and the latency. Tune the prompt and bump `NOTES_PROMPT_VERSION`. No key was available while building; the table to fill is in DESIGN.md 7b. | numbers recorded in DESIGN.md; the cost note shown in the UI |
+| 6 | ~~Holiday Shift: anchors, bar placement, wiring, tests~~ Done; the screenshot shows no overlap with the lift labels. | tests pass; screenshot checked for overlap with lift labels |
+| 7 | ~~Device Split: `heatmap_cells` refactor, anchors, cell placement, wiring, tests~~ Done; the heatmap figure is byte-identical. | tests pass; heatmap colours unchanged |
+| 8 | ~~Docs: DESIGN.md section "AI chart notes", README feature and screenshots, "What is still missing"~~ Done. | then open a PR to `main` |
 
 Step 5 needs an `OPENROUTER_API_KEY`. The current verdict has not been run live either, so do both in the same session.
 

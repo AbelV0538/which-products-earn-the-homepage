@@ -401,6 +401,7 @@ ga4app/
   charts.py                 Plotly figure builders + template (no Streamlit imports)
   llm.py                    OpenRouter streaming client (httpx), key resolution, fake transport
   narrative.py              payload, prompt, rule-based verdict, citation check, md escaping, stream wrapper
+  annotate.py               chart notes: anchors, number check, rule-based and AI notes (section 7b)
   state.py                  widget keys, Filters from widgets, presets/callbacks, sidebar renderer
   ui.py                     shared components: header, KPI row, chart+table twin, verdict block, inspector, banners
   bq.py                     credentials, client, dry run, capped run -> Arrow, proof query
@@ -873,6 +874,66 @@ FROM pr GROUP BY 1,2,3,4,5,6,7,8,9,10;
 - Verdict line: features G1, G2, W1; retire X1 "drew {views} views but converted at {cr} vs the {avg} average (≈{forgone} purchases forgone)".
 - Bullets: lift per 1k views for gems; why winners stay; device lean; trend flag; cannibalization flag.
 - Caveat line.
+
+## 7b. AI chart notes (`ga4app/annotate.py`, `charts._draw_notes`, `ui.chart_notes_*`)
+
+Built from [`PLAN_ai_chart_notes.md`](PLAN_ai_chart_notes.md). Numbered notes on the Feature Picks scatter, the Holiday Shift bars and the Device Split heatmap. The split of work is the safety rule:
+
+- **The model (or the rule-based template) chooses what to point at and what to say**, from the anchors the app offers.
+- **The chart function decides where the note goes**, because it owns the coordinates.
+- **`validate_notes` checks what the note says**: the anchor must exist, and every number must come from that anchor's data or the chart's scope.
+
+**Anchors** (`annotate.AnchorSet`: `chart`, `scope`, `anchors` = `[{"id", **facts}]`, `empty` caption, and `keys` = anchor → product key for the page, never sent)
+
+| Chart | Builder | Anchor ID | Facts | Never offered |
+|---|---|---|---|---|
+| Scatter | `scatter_anchors(payload, products, conflict_keys)` | product code `G1` | the verdict payload entry (name, category, views, purchases, `conversion_pct`, `adjusted_conversion_pct`, 80% `interval_pct`, `vs_avg`, `confidence`, `lift_per_1k` or `forgone_purchases`, `views_undercount`, `device_lean`) + `quadrant` + `cannibal_pair` | uncoded and ineligible products; at most 15 |
+| Bars | `holiday_anchors(groups, filters=...)` | `Apparel·cyber_week` (`charts`/`annotate` share `config.NOTE_ANCHOR_SEP`) | category, window, `conversion_pct`, `base_conversion_pct`, 95% `interval_pct`, `lift_pct`, `p_value`, `significant`, `lift_vs_rest_pct`, `p_value_vs_rest` | base-window bars; `low_sample` bars |
+| Heatmap | `heatmap_anchors(charts.heatmap_cells(matrix, codes=...), lean, scope=...)` | `G1·mobile`, or `R3·mobile` (3rd row, 1-based) for an uncoded product | name, device, `conversion_pct` (the cell text), `x_usual` (the colour's multiple, 2 decimals), views, purchases, `lean` | sparse tablet cells; cells with abs(log2(rel)) < 0.25 unless the product leans strongly; at most 30, strong-lean products' cells first, then the strongest |
+
+- Facts use `narrative`'s rounding (percent with 2 decimals, counts as integers, multiples with 2 decimals), so the number check compares like with like.
+- Scope: scatter = window, filters, average conversion, views threshold; bars = base and focus labels and dates, filters, `significance_level` 0.05; heatmap = window, filters, candidate list.
+- `charts.heatmap_cells` is the per-cell computation that used to live inside `device_heatmap` (row order, `rel`, `z`, `sparse`, plus the anchor ID). The chart and the anchors both read it, so a note quotes exactly what the cell shows. The heatmap figure is byte-identical to before.
+- **Anchors depend only on data controls** (sidebar filters, the high-traffic cutoff, the Holiday Shift comparison, the Device Split candidate list). Log/Linear, bubble size and colour are chart arguments only. **Raw/Adjusted** is a data control in this app: `metrics.classify` puts products in quadrants by the plotted metric, so it could re-code products. On the real and synthetic snapshots it gives the same coded products, hence the same anchors and cache key, in every scope tried (full season, min views 0, Cyber Week). When it does re-code products, the key changes and the notes are rewritten, which is right: a note must point at the bubble that carries its code.
+
+**The model call** (`ai_notes`)
+- Own prompt, `NOTES_PROMPT_VERSION = "notes-2026-11-17.1"`: the verdict's analyst role; at most 4 anchors; each note has `anchor`, `kind` (`highlight` / `caution`), a `label` of 5 words or fewer and a `detail` of 25 words or fewer; copy numbers exactly, never compute new ones; at least one caution when an anchor carries `views_undercount`, `cannibal_pair` or `confidence: "uncertain"`; products named with their code in brackets; reply with `{"notes": [...]}` only. Definitions cover the fields of all three charts.
+- User message: `Annotate this chart. JSON:` + `{"chart", "question", "scope", "anchors"}`.
+- Transport: `llm.stream_chat` unchanged (same model, fallbacks and key as the verdict), text events joined, no `response_format`. Any `OpenRouterError`, network error or empty reply gives the rule-based notes with `error` = the reason.
+- Offline: `llm.fake_transport(respond=...)` takes a function from the request body to text chunks (default: the verdict's `FAKE_TEXT_CHUNKS`); `annotate.fake_respond` notes the first two anchors without numbers, so it passes on any data. `GA4APP_LLM_FAKE=1` selects it.
+
+**Validation** (`validate_notes`; rule-based notes go through it too)
+1. Parse: strip code fences, decode the first JSON value at a `{` or `[` (`{"notes": [...]}` or a bare list). Unreadable: rule-based notes, error "AI notes could not be read".
+2. Shape: `anchor`, `label`, `detail` must be non-empty strings; an unknown `kind` becomes `highlight`.
+3. Anchor: unknown → dropped, duplicate → dropped, then the first `NOTES_MAX = 4` are kept.
+4. Number check (`unmatched_numbers`): product codes (`[A-Z]\d{1,3}`) and the anchor ID are removed; every number (`\d+(?:,\d{3})*(?:\.\d+)?`) written with d decimals must satisfy abs(x − v) ≤ 0.5·10^−d for some v among this anchor's facts and the scope, including numbers inside strings (dates, "min 200 views"). Integers 1–5 pass as counting words; signs are compared by absolute value.
+5. Length: label to 40 and detail to 200 characters, cut at a word so a number is never cut in half, ending with "...".
+6. Stored unescaped; `charts._esc` escapes for Plotly, `narrative.md_safe` plus markdown escaping for the list.
+7. No survivors (or an empty list): rule-based notes, error "no AI note passed the checks", with `dropped = [(anchor, reason)]`.
+
+**Rule-based notes** (`rule_based_notes`, deterministic)
+- Scatter: G1 "Best hidden gem", W1 "Top winner", X1 "Most purchases forgone" (caution), and a caution "Views may be under-counted" for the first featured pick (the verdict's Feature order) whose views look under-counted. When that pick is G1 or W1, its own note becomes the caution instead of a duplicate.
+- Bars: the largest significant rise (highlight) and drop (caution), "significant at p < 0.05". The lift is written rounded like the bar's own label (+108%). Nothing significant: no notes and the caption "No significant shift to point out."
+- Heatmap: the favoured-device cell of up to 2 mobile-first / desktop-first products ("Mobile-first hero"), then the strongest remaining cell of another product ("Strong on mobile", or a caution "Weak on desktop").
+
+**Placement** (`ChartNote(anchor, kind, label, detail, n)` and `NotesResult` in `types.py`)
+- `_draw_notes`: annotation `note:<source>`, text `<b>n</b> label` (cautions: `<b>n</b> <b>!</b> label`, coral border), detail on hover, white box, ink text.
+- Scatter: at the drawn point (`log10(views)`, `log10(y_plot)` on a log y axis), so a clipped bubble's arrow goes to the edge; the box sits 40 px toward the centre horizontally and 30 px vertically (below in the top third); the arrow stops at the bubble's radius.
+- Bars: at the focus bar's `x[j]` and whisker top, 40 px above; the arrow stops above the lift label; the y headroom grows from 1.18 to 1.35 when a note is drawn.
+- Heatmap: a rectangle around the cell and a numbered badge in its top-left corner; the label is in the list only.
+- With no notes drawn, every figure is unchanged (tests compare the JSON).
+
+**Page UI**
+- `ui.chart_notes_controls(anchors, rule_notes=None, *, key_prefix)` above the chart: the "Point out what matters" toggle (`{P}notes_on`, off), "Write AI notes" (disabled without a model or anchors; it also turns the toggle on) and the cost note. The click runs `ai_notes` under a spinner, not streamed. Results whose source is `"ai"` are cached by `cache_key` = sha256(prompt version, model, chart, canonical JSON of scope + anchors) in `st.session_state["notes_cache"]` and a shared `st.cache_resource` dict. Without a click: the cached AI notes for these anchors, else the rule-based ones.
+- `ui.chart_notes_list(result, anchors, *, key_prefix, inspect=False)` under it: the source caption ("AI notes · model · every number checked against the data" or "Rule-based notes from the numbers on this chart"), a warning with the dropped notes or the failure, then "**n** label: detail". Feature Picks adds an Inspect button per product note.
+- `ui.chart_with_table(..., alt_extra=ui.notes_alt(notes))` puts the note sentences into the chart's alt text only.
+
+**Live run (plan step 5): not done yet.** No `OPENROUTER_API_KEY` was available while building. To do, together with the first live verdict run: Claude Opus 5.5 and one free model on all three charts; record per call the cost (`usage.cost`), latency, notes returned and dropped with the reasons; tune the prompt and bump `NOTES_PROMPT_VERSION`; then put the measured cost in `ui.NOTES_COST_NOTE`.
+
+| Model | Chart | Cost per call | Latency | Notes returned / dropped | Drop reasons |
+|---|---|---|---|---|---|
+| `anthropic/claude-opus-5.5` | scatter / bars / heatmap | – | – | – | – |
+| a free model | scatter / bars / heatmap | – | – | – | – |
 
 ## 8. Tests and end-to-end verification
 

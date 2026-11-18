@@ -4,7 +4,7 @@
 
 *ITCS 5122 Visual Analytics · Team 9 · Account D · Pitch 1. Client: Head of Merchandising.*
 
-> **Status:** working app with 7 pages, running on real GA4 data pulled live from BigQuery plus real Google Trends data. There are 366 automated tests, all passing, run on every push by GitHub Actions. See [What is still missing](#what-is-still-missing).
+> **Status:** working app with 7 pages, running on real GA4 data pulled live from BigQuery plus real Google Trends data. There are 459 automated tests, all passing, run on every push by GitHub Actions. See [What is still missing](#what-is-still-missing).
 
 ![Feature Picks page](docs/screenshots/feature_picks.png)
 
@@ -35,7 +35,7 @@ The app runs entirely from the small snapshot files committed in `data/` (a few 
    | `openrouter/free`, `google/gemma-4-31b-it:free` | Free; limited to 50 requests/day without credits |
    | A custom model id | |
 
-Without a key, the app shows a deterministic rule-based verdict built from the same numbers. `.streamlit/secrets.toml` is git-ignored: never commit a key.
+Without a key, the app shows a deterministic rule-based verdict built from the same numbers. `.streamlit/secrets.toml` is git-ignored: never commit a key. The same key and model also write the [chart notes](#chart-notes).
 
 ## What the app answers
 
@@ -49,7 +49,24 @@ Without a key, the app shows a deterministic rule-based verdict built from the s
 | **Slot Plan** | The decision | Black Friday / Cyber Monday / December slot cards with an 80% range, how much of each score comes from the window itself, and device-lean, trend, cannibal and data-quality badges. A candidates chart shows how far ahead of the alternatives each pick is. Products can be pinned or excluded (e.g. out of stock). Also a retire list, CSV and Markdown export, and an AI verdict for the plan. |
 | **Data & Method** | Data abstraction (pitch slides 2 and 5) | Proof counts (CSV vs live BigQuery), cleaning steps with the real counts, category mapping, formulas, season windows, limits and all the SQL. |
 
+Three charts can also point out what matters themselves: see [Chart notes](#chart-notes).
+
 **Shared sidebar filters:** season presets, date range, device, category group and a minimum-views threshold. Charts and tables update live. Pages that compare fixed windows disable the filters they ignore. The filters are kept in the page URL (for example `?preset=cyber_week&dev=mobile&minv=500`), so a link reproduces the view.
+
+## Chart notes
+
+The Feature Picks scatter, the Holiday Shift bars and the Device Split heatmap have a **Point out what matters** toggle (off by default). It draws up to four numbered notes on the chart, at the bubbles, bars or cells that matter for the homepage decision, and lists them under the chart. Cautions (views that look under-counted, a significant drop, a weak device) get a coral border and a "!".
+
+- **Rule-based notes work without a key.** Feature Picks points at the best hidden gem [G1], the top winner [W1] and the product with the most purchases forgone [X1], and flags a featured pick whose views look under-counted. Holiday Shift points at the largest significant rise and drop. Device Split points at the favoured device of up to two mobile-first or desktop-first products, then at the strongest remaining cell.
+- **Write AI notes** asks the sidebar's model to choose the notes instead. The app offers it a fixed list of anchors (product codes, `category·window` bars, `code·device` cells) with their numbers, and the model can point only at those.
+- **Every note is checked before it is drawn.** The anchor must be one the app offered, and every number in the text must be a rounding of a number in that anchor's data or the chart's scope. A note that fails is dropped, and the page says which and why. If none survive, or the call fails, the rule-based notes are shown with a warning.
+- **The app places the notes, not the model.** Arrows point at the drawn bubble (a clipped bubble's arrow goes to the edge), bar notes sit above the lift label, and heatmap notes outline the cell with a numbered badge.
+- **AI notes are cached** by the anchors and the model. Switching only how the chart is drawn (log or linear scale, bubble size, colour) re-places the same notes without a new call.
+- On Feature Picks, each product note has an **Inspect** button that opens the product inspector.
+
+| Feature Picks, with rule-based notes | Holiday Shift |
+|---|---|
+| ![Chart notes on the Feature Picks scatter](docs/screenshots/chart_notes_feature_picks.png) | ![A chart note on the Holiday Shift bars](docs/screenshots/chart_notes_holiday_shift.png) |
 
 ## Key results on the real data
 
@@ -193,6 +210,7 @@ The suite covers:
 - **Unit tests** for every module.
 - **Real-data smoke tests**, including the Jan 25 item-data cut.
 - **Streamlit `AppTest` runs** of all 7 pages, plus the URL filters and pinning / excluding products in the slot plan.
+- **Chart notes:** the number check (roundings pass; invented, computed or misplaced numbers fail), unknown and duplicate anchors, lenient parsing, the rule-based notes passing their own checks on synthetic and real data, placement on log axes and clipped bubbles, and AppTest runs with an offline fake model that check display controls never trigger a second call.
 
 GitHub Actions (`.github/workflows/tests.yml`) runs the same suite on every push and pull request.
 
@@ -208,6 +226,7 @@ ga4app/
   phase2.py            cannibalization tests, trend index and alerts
   charts.py            Plotly builders (colour-blind-checked palette, one axis per chart)
   narrative.py, llm.py rule-based verdict + OpenRouter streaming client
+  annotate.py          chart notes: anchors, number check, rule-based and AI notes
   taxonomy.py          name keys, legacy aliases, category groups
   trends.py            Google Trends adapters and parsing
   data.py, state.py, ui.py   snapshot loading/caching, sidebar state, shared UI
@@ -225,6 +244,7 @@ docs/DESIGN.md         full design: contracts, SQL, formulas, page specs
 | Area | Status |
 |---|---|
 | Live AI verdict | ⏳ **Not yet run against the real OpenRouter API.** It is tested with a mocked stream (parsing, errors, fallbacks). Needs an `OPENROUTER_API_KEY` to check end to end. |
+| Live AI chart notes | ⏳ **Not yet run against the real OpenRouter API either** (step 5 of [the plan](docs/PLAN_ai_chart_notes.md)). Tested with an offline fake model. The live run should record the cost per call, how often the checks drop notes and why, and the latency, for Claude Opus 5.5 and one free model, in the same session as the verdict. |
 | "Re-run proof query live" button (Data & Method) | ⏳ Only works on a machine with cached BigQuery credentials. It is disabled elsewhere and has not been clicked in the running app. |
 | Deployment | ⏳ Not deployed. The app is ready for Streamlit Community Cloud, since it runs from the committed snapshots, and the key can go in the Cloud app's secrets. |
 | `TEAM9.pdf` (original pitch deck) | Intentionally not committed. |
