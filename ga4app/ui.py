@@ -23,7 +23,8 @@ QUESTIONS = {
     "Phase 2b": "Which categories are trending on Google ahead of our own traffic?",
 }
 COST_NOTE = "About \\$0.02–0.05 per verdict with Claude Opus 5.5; free models are rate-limited."
-NOTES_COST_NOTE = "One model call per chart; the notes are kept when only the display changes."
+NOTES_COST_NOTE = ("About \\$0.02 per chart with Claude Opus 5.5, one call; the notes are kept when only the "
+                   "display changes.")
 
 
 def esc(text: Any) -> str:

@@ -377,6 +377,18 @@ def test_ai_notes_empty_reply_or_no_key_gives_the_rule_based_notes(scatter):
     assert no_model.source == "rule" and no_model.error == "no model selected"
 
 
+def test_ai_notes_that_run_out_of_tokens_say_so(scatter):
+    """Seen live: free reasoning models can spend all of max_tokens thinking and return no text."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        chunk = {"model": "free/thinker", "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": "length"}]}
+        return httpx.Response(200, headers={"content-type": "text/event-stream"},
+                              content=f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n".encode())
+
+    result = annotate.ai_notes(scatter, api_key=KEY, model="openrouter/free", transport=httpx.MockTransport(handler))
+    assert result.source == "rule" and result.notes == annotate.rule_based_notes(scatter).notes
+    assert result.error == "the model used up its token budget before answering; try again or choose another model"
+
+
 def test_ai_notes_without_anchors_makes_no_call():
     calls = []
     result = annotate.ai_notes(annotate.AnchorSet(annotate.CHART_SCATTER, {}), api_key=KEY, model="m",

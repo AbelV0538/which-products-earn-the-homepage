@@ -32,7 +32,7 @@ import pandas as pd
 from . import config, llm, narrative
 from .types import ChartNote, NotesResult
 
-NOTES_PROMPT_VERSION = "notes-2026-11-18.1"  # tuned after the first live run (DESIGN.md 7b)
+NOTES_PROMPT_VERSION = "notes-2026-11-18.2"  # tuned after the first live run (DESIGN.md 7b)
 
 NOTE_KINDS = ("highlight", "caution")
 COUNTING_WORDS = frozenset({1, 2, 3, 4, 5})  # "top 3" needs no source number
@@ -67,9 +67,11 @@ the whole chart) and the anchors: the only bubbles, bars or cells you may point 
 id and its facts.
 - Pick at most 4 anchors that matter most for the homepage-slot decision. Fewer is fine.
 - For each, write a note: "anchor" (an id copied character for character from anchors), "kind" \
-("highlight" for a reason to feature, "caution" for a reason to doubt or retire), "label" (5 \
-words or fewer saying why it matters, not the product's name; drawn on the chart) and "detail" \
-(one sentence of 25 words or fewer, shown under the chart).
+("highlight" for a reason to feature, "caution" for a reason to doubt or retire), "label" (at \
+most 5 words and 30 characters saying why it matters, not the product's name; drawn on the \
+chart) and "detail" (one sentence of 25 words or fewer, shown under the chart).
+- Begin each detail with what the note points at: the product's name and code, or the \
+category's name, so the sentence reads on its own.
 - Write plain English for a merchandiser. Never put field names (such as conversion_pct or \
 lift_vs_rest_pct) or JSON in label or detail.
 
@@ -79,6 +81,8 @@ it to fewer decimals. Never compute new numbers: no differences, sums, ratios or
 that are not already there. Keep a multiple as a multiple ("1.24× its usual rate"); write a \
 percent change only when it is itself a fact (lift_pct, vs_usual_pct).
 - Use only the JSON. Never invent products, causes, stock levels or margins.
+- You see only the anchors, not the whole chart: never call a bubble, bar or cell the highest, \
+lowest, most, least, best or worst, in the label or the detail.
 - If any anchor has views_undercount, cannibal_pair or confidence "uncertain", include at least \
 one caution about such an anchor.
 - Name a product in detail with its code in square brackets, for example "Google Tee [G1]". Put \
@@ -377,6 +381,10 @@ def ai_notes(
         finally:
             chunks.close()
         text = "".join(parts)
+        if not text.strip() and finish == "length":
+            # Seen live: free reasoning models can spend all of max_tokens thinking and answer nothing.
+            raise llm.OpenRouterError(None, "length", "the model used up its token budget before answering; "
+                                                      "try again or choose another model")
         if not text.strip():
             raise llm.OpenRouterError(None, "empty", f"the model returned no text (finish reason: {finish or 'none'})")
     except (llm.OpenRouterError, httpx.HTTPError) as exc:

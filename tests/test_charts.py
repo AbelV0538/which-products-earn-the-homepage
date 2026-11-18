@@ -792,6 +792,7 @@ def test_scatter_note_sits_on_its_bubble_on_log_axes():
     # The box is pushed toward the interior: left of a bubble in the right half, below one in the top third.
     lo, hi = fig.layout.xaxis.range
     assert (ann.ax < 0) == ((ann.x - lo) / (hi - lo) > 0.5)
+    assert ann.xanchor == ("right" if ann.ax < 0 else "left")  # the box grows toward the interior
     y_lo, y_hi = fig.layout.yaxis.range
     assert (ann.ay > 0) == ((ann.y - y_lo) / (y_hi - y_lo) > 2 / 3)
     assert ann.standoff >= charts.BUBBLE_MIN_PX / 2
@@ -883,6 +884,37 @@ def test_heatmap_note_adds_a_cell_rectangle_and_a_badge():
     # Without notes the heatmap is unchanged.
     for empty in (None, [], NotesResult()):
         assert charts.device_heatmap(_device_matrix(), _lean(), notes=empty).to_json() == plain.to_json()
+
+
+def test_scatter_notes_on_neighbouring_bubbles_do_not_overlap():
+    """Seen in the live run: G1 and G2 sit close together and their boxes landed on each other."""
+    products = _products()
+    g1 = products.index[products["code"] == "G1"][0]
+    w1 = products.index[products["code"] == "W1"][0]
+    near = products.index[products["code"] == "G2"][0]
+    products.loc[near, ["views", "cr_raw"]] = [products.loc[g1, "views"] * 1.05, products.loc[g1, "cr_raw"] * 0.95]
+    notes = [ChartNote(c, "highlight", f"Note for {c}", "d") for c in ("G1", "G2", "W1")]
+    fig = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale="log", notes=notes)
+    a, b, w = _note_ann(fig)
+    assert (a.ay > 0) != (b.ay > 0) or abs(a.ay - b.ay) >= charts.NOTE_BOX_PX  # other side, or stacked
+    alone = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale="log", notes=notes[2:])
+    assert (w.ax, w.ay) == (_note_ann(alone)[0].ax, _note_ann(alone)[0].ay)  # a note far from the others keeps its place
+    assert products.loc[w1, "views"] > 3 * products.loc[g1, "views"]
+
+
+def test_bar_notes_on_neighbouring_bars_stack_upward():
+    base = _period_df().query("group == 'Apparel'")
+    df = pd.concat([base.assign(group=g) for g in config.CATEGORY_GROUPS], ignore_index=True)  # 7 equal groups
+    notes = [ChartNote("Apparel·cyber_week", "highlight", "A long label that is wide", "d"),
+             ChartNote("Drinkware·cyber_week", "highlight", "Another long wide label", "d"),
+             ChartNote("Lifestyle & Gifts·cyber_week", "highlight", "Far away", "d")]
+    a, b, far = _note_ann(charts.period_bars(df, notes=notes))
+    assert a.ay == -charts.NOTE_BAR_DY and b.ay == -charts.NOTE_BAR_DY - charts.NOTE_BOX_PX  # next-door bars
+    assert far.ay == -charts.NOTE_BAR_DY
+    two = _period_df().assign(cr=0.005, ci_low=0.0045, ci_high=0.0055)  # two groups: half the plot apart
+    a, b = _note_ann(charts.period_bars(two, notes=[ChartNote("Apparel·cyber_week", "highlight", "x", "d"),
+                                                    ChartNote("Drinkware·cyber_week", "highlight", "y", "d")]))
+    assert a.ay == b.ay == -charts.NOTE_BAR_DY
 
 
 def test_note_text_is_escaped():

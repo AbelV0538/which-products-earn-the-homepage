@@ -95,6 +95,11 @@ NOTE_DY = 30
 NOTE_BAR_DY = 40  # bar notes sit this far above the bar top, clear of its lift label
 BAR_HEADROOM = 1.18  # y range top / highest whisker on period_bars...
 NOTE_BAR_HEADROOM = 1.35  # ... and with notes, so the boxes stay inside the plot
+# Overlap check for note boxes. The plot's pixel width is not known (it follows the page), so it
+# is guessed; a wrong guess only stacks boxes that would not have touched.
+NOTE_BOX_PX = 24  # height of a note box plus a gap
+NOTE_PLOT_W_GUESS = 700  # px
+NOTE_BOX_W_GUESS = 0.32  # share of the plot width a note box may cover
 
 _SEQ_NAVY = [[0.0, config.PALETTE["lavender"]], [0.35, "#9AA6D9"], [0.7, "#6270BD"], [1.0, config.PALETTE["navy"]]]
 _DIVERGING_SCALE = [[0.0, config.DIVERGING[0]], [0.5, config.DIVERGING[1]], [1.0, config.DIVERGING[2]]]
@@ -403,6 +408,39 @@ def _note_box(note: ChartNote) -> dict[str, Any]:
     caution = note.kind == "caution"
     return {"bgcolor": WHITE_BOX, "bordercolor": CORAL if caution else INK, "borderwidth": 2 if caution else 1,
             "borderpad": 3, "font": {"color": INK, "size": 11}}
+
+
+def _spread_notes(spots: Sequence[dict[str, float]], *, plot_h: float, flip: bool) -> None:
+    """Move note boxes off each other, in order: a box that would overlap an earlier one first tries
+    the other side of its point (when ``flip``), then steps further out by one box height.
+
+    Each spot has ``fx`` / ``fy`` (the point as a share of the plot, from the bottom left), ``ax``
+    and ``ay`` (pixel offsets of the box; ``ay`` is changed in place). A box must stay inside
+    ``plot_h`` pixels; boxes clash when their centres are closer than a box height vertically and
+    ``NOTE_BOX_W_GUESS`` of the width horizontally. A box with ``ax != 0`` grows away from its
+    point (``xanchor`` right of a left box, left of a right box), so its centre sits half a box
+    further out.
+    """
+    taken: list[tuple[float, float]] = []
+    for spot in spots:
+        y_px = (1.0 - spot["fy"]) * plot_h  # from the top of the plot
+        grow = math.copysign(NOTE_BOX_W_GUESS / 2, spot["ax"]) if spot["ax"] else 0.0
+        fx = spot["fx"] + spot["ax"] / NOTE_PLOT_W_GUESS + grow
+        base = spot["ay"]
+        step = NOTE_BOX_PX if base >= 0 else -NOTE_BOX_PX
+        tries = [base + k * step for k in range(4)]
+        if flip:
+            tries = [base, -base] + [t for k in range(1, 4) for t in (base + k * step, -base - k * step)]
+        choice = base
+        for ay in tries:
+            yc = y_px + ay
+            if not NOTE_BOX_PX / 2 <= yc <= plot_h - NOTE_BOX_PX / 2:
+                continue
+            if all(abs(fx - tx) >= NOTE_BOX_W_GUESS or abs(yc - ty) >= NOTE_BOX_PX for tx, ty in taken):
+                choice = ay
+                break
+        spot["ay"] = choice
+        taken.append((fx, y_px + choice))
 
 
 def _draw_notes(fig: go.Figure, placed: Sequence[tuple[ChartNote, int, Mapping[str, Any]]], *, source: str) -> None:
@@ -722,7 +760,7 @@ def quadrant_scatter(
     if note_list:
         point_of = {str(c): i for i, c in enumerate(codes) if c}
         y_lo, y_hi = (math.log10(y_range[0]), math.log10(y_range[1])) if log_y else (y_range[0], y_range[1])
-        placed = []
+        placed, spots = [], []
         for k, note in enumerate(note_list):
             i = point_of.get(note.anchor)
             if i is None:
@@ -730,12 +768,15 @@ def quadrant_scatter(
             # Annotations on a log axis take log10 coordinates.
             x = math.log10(views[i])
             yy = math.log10(y_plot[i]) if log_y else float(y_plot[i])
-            right = (x - x_range[0]) / (x_range[1] - x_range[0]) > 0.5
-            top = (yy - y_lo) / (y_hi - y_lo) > 2 / 3
-            placed.append((note, k, {
-                "x": x, "y": yy, "ax": -NOTE_DX if right else NOTE_DX, "ay": NOTE_DY if top else -NOTE_DY,
-                "standoff": float(radius[i]) + 2,
-            }))
+            fx, fy = (x - x_range[0]) / (x_range[1] - x_range[0]), (yy - y_lo) / (y_hi - y_lo)
+            spot = {"fx": fx, "fy": fy, "ax": -NOTE_DX if fx > 0.5 else NOTE_DX, "ay": NOTE_DY if fy > 2 / 3 else -NOTE_DY}
+            spots.append(spot)
+            placed.append((note, k, {"x": x, "y": yy, "standoff": float(radius[i]) + 2, "_spot": spot}))
+        _spread_notes(spots, plot_h=height - 84 - 64, flip=True)  # minus the top margin and the x axis
+        # Each box grows toward the plot's interior from its arrow, so none hangs over an edge.
+        placed = [(note, k, {**{a: b for a, b in pos.items() if a != "_spot"}, "ax": pos["_spot"]["ax"],
+                             "ay": pos["_spot"]["ay"], "xanchor": "right" if pos["_spot"]["ax"] < 0 else "left"})
+                  for note, k, pos in placed]
         _draw_notes(fig, placed, source=source)
 
     y_title = "Purchases per product view" + (" (adjusted)" if y == "cr_adj" else "") + (" (log scale)" if log_y else "")
@@ -880,12 +921,18 @@ def period_bars(
                     yanchor="bottom", yshift=3, font={"color": INK, "size": 11},
                 )
     note_list, source = _note_list(notes)
-    placed = []
+    placed, spots = [], []
+    y_max = max(y_top, 1e-6) * NOTE_BAR_HEADROOM
     for k, note in enumerate(note_list):
         if note.anchor in bar_at:
             bx, top, labelled = bar_at[note.anchor]
+            spot = {"fx": (bx + 0.5) / max(len(groups), 1), "fy": top / y_max, "ax": 0.0, "ay": float(-NOTE_BAR_DY)}
+            spots.append(spot)
             # The arrow stops just above the lift label (about 17 px tall), or near a bare bar's top.
-            placed.append((note, k, {"x": bx, "y": top, "ax": 0, "ay": -NOTE_BAR_DY, "standoff": 19 if labelled else 3}))
+            placed.append((note, k, {"x": bx, "y": top, "ax": 0, "standoff": 19 if labelled else 3, "_spot": spot}))
+    _spread_notes(spots, plot_h=height - 40 - 60, flip=False)  # boxes only stack upward, never onto the bars
+    placed = [(note, k, {**{a: b for a, b in pos.items() if a != "_spot"}, "ay": pos["_spot"]["ay"]})
+              for note, k, pos in placed]
     _draw_notes(fig, placed, source=source)
     apply_template(fig, height=height, barmode="overlay", barcornerradius=4, showlegend=n >= 2, hovermode="closest")
     fig.update_xaxes(
