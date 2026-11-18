@@ -10,11 +10,14 @@ text must be a rounding of a number in that anchor's facts or in the chart's sco
 
 Anchors depend only on the data and the data controls (sidebar filters, the high-traffic cutoff),
 never on display controls (Log/Linear, bubble size, colour), so switching a display control
-re-places the same notes. No Streamlit here; ``ui.chart_notes_controls`` draws the controls.
+re-places the same notes. ``ai_notes`` asks the model through ``llm.stream_chat`` (the verdict's
+model, fallbacks and key) and falls back to ``rule_based_notes`` on any failure. No Streamlit
+here; ``ui.chart_notes_controls`` draws the controls.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -22,10 +25,13 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+import httpx
 import pandas as pd
 
-from . import config, narrative
+from . import config, llm, narrative
 from .types import ChartNote, NotesResult
+
+NOTES_PROMPT_VERSION = "notes-2026-11-17.1"
 
 NOTE_KINDS = ("highlight", "caution")
 COUNTING_WORDS = frozenset({1, 2, 3, 4, 5})  # "top 3" needs no source number
@@ -43,6 +49,51 @@ SCATTER_FACTS = (
     "vs_avg", "confidence", "lift_per_1k", "forgone_purchases", "views_undercount", "device_lean",
 )
 SCATTER_SCOPE = ("window", "filters", "avg_conversion_pct", "views_threshold")
+
+SYSTEM_PROMPT = """\
+You are a merchandising analyst for the Google Merchandise Store, annotating one chart for the \
+Head of Merchandising. They must decide which products get the few holiday homepage feature slots \
+(Black Friday, Cyber Monday, the December gifting push), ranked by view-to-purchase efficiency, \
+not raw traffic.
+
+Task
+- The user message is JSON: the chart, the question it answers, the scope (numbers that apply to \
+the whole chart) and the anchors: the only bubbles, bars or cells you may point at, each with an \
+id and its facts.
+- Pick at most 4 anchors that matter most for the homepage-slot decision. Fewer is fine.
+- For each, write a note: "anchor" (an id copied exactly from anchors), "kind" ("highlight" for a \
+reason to feature, "caution" for a reason to doubt or retire), "label" (5 words or fewer, drawn \
+on the chart) and "detail" (one sentence of 25 words or fewer, shown under the chart).
+
+Grounding
+- Copy every number exactly as it is written in that anchor's facts or in scope; you may round \
+it to fewer decimals. Never compute new numbers: no differences, sums, ratios or percent changes \
+that are not already there.
+- Use only the JSON. Never invent products, causes, stock levels or margins.
+- If any anchor has views_undercount, cannibal_pair or confidence "uncertain", include at least \
+one caution about such an anchor.
+- Name a product in detail with its code in square brackets, for example "Google Tee [G1]". Put \
+nothing else in square brackets.
+
+Definitions
+- conversion_pct = purchases per product view, in percent. A product view means the product \
+appeared in a product-page view event, so rates are low (under 1% on average).
+- adjusted_conversion_pct is the shrunk (empirical-Bayes) rate used for ranking; interval_pct is \
+its 80% interval; vs_avg is it divided by scope.avg_conversion_pct.
+- quadrant: Winners (high traffic, high conversion: keep), Hidden gems (low traffic, high \
+conversion: promote), Wasted exposure (high traffic, low conversion: retire). lift_per_1k = extra \
+purchases per 1,000 extra views; forgone_purchases = purchases lost against an average product.
+- views_undercount: checkout events reach half its product views, so its views look \
+under-counted and its conversion overstated. cannibal_pair: on its spike days a related product \
+sold less, so featuring both at once may move sales rather than add them.
+- Holiday bars: conversion_pct in the focus window against base_conversion_pct in the base \
+window; lift_pct is the relative change, significant means p_value < scope.significance_level; \
+lift_vs_rest_pct is the change beyond the rest of the store.
+- Device cells: x_usual is the product's conversion on that device relative to its usual rate \
+across devices (1 = as usual); lean is Mobile-first, Desktop-first, Both or Not enough data.
+
+Reply with JSON only, no prose and no code fences:
+{"notes": [{"anchor": "G1", "kind": "highlight", "label": "...", "detail": "..."}]}"""
 
 _CODE = re.compile(r"\b[A-Z]\d{1,3}\b")  # product codes (G1, W12) and uncoded heatmap rows (R3)
 _NUMBER = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?")
@@ -118,6 +169,101 @@ def scatter_anchors(payload: Mapping[str, Any], products: pd.DataFrame,
                      keys={a["id"]: keys[a["id"]] for a in anchors})
 
 
+# --------------------------------------------------------------------------- the model call
+
+
+def _request_json(anchors: AnchorSet) -> dict[str, Any]:
+    return {"chart": anchors.chart, "question": anchors.question, "scope": anchors.scope, "anchors": anchors.anchors}
+
+
+def build_messages(anchors: AnchorSet) -> list[dict]:
+    """System prompt plus the chart, question, scope and anchors as compact JSON."""
+    data = json.dumps(_request_json(anchors), ensure_ascii=False, separators=(",", ":"), default=str)
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": f"Annotate this chart. JSON:\n{data}"},
+    ]
+
+
+def cache_key(anchors: AnchorSet, model: str) -> str:
+    """sha256 of the prompt version, model, chart and canonical JSON of scope + anchors. Display
+    controls never enter the anchors, so switching one reuses the cached notes."""
+    canonical = json.dumps({"scope": anchors.scope, "anchors": anchors.anchors}, sort_keys=True, ensure_ascii=False,
+                           separators=(",", ":"), default=str)
+    text = f"{NOTES_PROMPT_VERSION}\n{model}\n{anchors.chart}\n{canonical}"
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def ai_notes(
+    anchors: AnchorSet,
+    *,
+    api_key: str | None,
+    model: str,
+    fallbacks: Sequence[str] | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> NotesResult:
+    """Ask the model for notes and validate them. Not streamed: the text events are joined.
+
+    Uses ``llm.stream_chat`` as the verdict does (``fallbacks=None`` means
+    ``llm.default_fallbacks(model)``; no ``response_format``, the reply is parsed leniently). An
+    ``OpenRouterError``, a network error or an empty reply gives the rule-based notes with
+    ``error`` set to the reason. ``GA4APP_LLM_FAKE=1`` answers with ``fake_respond``.
+    """
+    model = (model or "").strip()
+    if transport is None and llm.fake_mode():
+        transport = llm.fake_transport(respond=fake_respond)
+    served, usage, finish = None, None, None
+    parts: list[str] = []
+    try:
+        if not model:
+            raise llm.OpenRouterError(None, "no_model", "no model selected")
+        if not anchors.anchors:
+            return rule_based_notes(anchors)  # nothing to point at: no call
+        chunks = llm.stream_chat(
+            build_messages(anchors),
+            api_key=api_key or "",
+            model=model,
+            fallbacks=llm.default_fallbacks(model) if fallbacks is None else tuple(fallbacks),
+            transport=transport,
+        )
+        try:
+            for ev in chunks:
+                served = ev.model or served
+                usage = ev.usage or usage
+                finish = ev.finish_reason or finish
+                if ev.kind == "text":
+                    parts.append(ev.text)
+                elif ev.kind == "error":
+                    raise llm.OpenRouterError(ev.status, ev.code, ev.text or "the stream failed")
+        finally:
+            chunks.close()
+        text = "".join(parts)
+        if not text.strip():
+            raise llm.OpenRouterError(None, "empty", f"the model returned no text (finish reason: {finish or 'none'})")
+    except (llm.OpenRouterError, httpx.HTTPError) as exc:
+        rule = rule_based_notes(anchors)
+        return NotesResult(rule.notes, "rule", served or model or None, usage, [], narrative._failure_reason(exc))
+    return validate_notes(text, anchors, model=served or model, usage=usage)
+
+
+def fake_respond(body: Mapping[str, Any]) -> list[str]:
+    """Offline answer for ``GA4APP_LLM_FAKE=1``: notes for the first two anchors of the request's
+    user message (a highlight and a caution). They quote no numbers, so they pass the checks on
+    any data."""
+    user = next((m.get("content", "") for m in body.get("messages") or [] if m.get("role") == "user"), "")
+    request = parse_json_object(user) or {}
+    notes = []
+    for i, anchor in enumerate((request.get("anchors") or [])[:2]):
+        notes.append({
+            "anchor": anchor.get("id"),
+            "kind": "highlight" if i == 0 else "caution",
+            "label": "Offline note" if i == 0 else "Offline caution",
+            "detail": "Offline test note: no model was called.",
+        })
+    reply = json.dumps({"notes": notes})
+    return [reply[: len(reply) // 2], reply[len(reply) // 2 :]]
+
+
 # --------------------------------------------------------------------------- number check
 
 
@@ -167,6 +313,18 @@ def unmatched_numbers(text: str, facts: Mapping[str, Any], scope: Mapping[str, A
 
 
 # --------------------------------------------------------------------------- validation
+
+
+def parse_json_object(text: str) -> dict | None:
+    """The first JSON object in ``text`` (after any prose), or None."""
+    start = (text or "").find("{")
+    if start < 0:
+        return None
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text[start:])
+    except json.JSONDecodeError:
+        return None
+    return obj if isinstance(obj, dict) else None
 
 
 def parse_reply(text: str) -> list | None:

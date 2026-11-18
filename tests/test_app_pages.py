@@ -198,3 +198,45 @@ def test_chart_note_inspect_button_sets_the_inspector(monkeypatch, synthetic_dir
     assert key and any(b.label == "Add to slot plan" for b in at.button)
     name = data.name_of(data.load_snapshot(synthetic_dir), key)
     assert name in _note_lines(at)[0]  # the product the first note names
+
+
+def test_ai_chart_notes_fake_and_cached(monkeypatch, synthetic_dir):
+    from ga4app import annotate
+
+    calls = []
+    real = annotate.fake_respond
+
+    def counting(body):
+        calls.append(body)
+        return real(body)
+
+    monkeypatch.setattr(annotate, "fake_respond", counting)
+    at = _run(monkeypatch, synthetic_dir, **{config.LLM_FAKE_ENV: "1"})
+    at.secrets["OPENROUTER_API_KEY"] = "test"
+    at.run()
+    at.button(key="fp_notes_ai").click().run()  # also turns the toggle on
+    assert not at.exception, [e.value for e in at.exception]
+    assert at.toggle(key="fp_notes_on").value is True
+    assert len(calls) == 1
+    names = _note_names(at)
+    assert names == ["note:ai", "note:ai"]  # the fake responder notes the first two anchors
+    assert at.session_state["notes_cache"], "AI notes should be cached"
+    assert any("AI notes" in c.value and "every number checked" in c.value for c in at.caption)
+    assert any("Offline test note" in line for line in _note_lines(at))
+    # Display controls re-place the cached notes without a new call.
+    at.button_group(key="fp_scale").set_value("Linear").run()
+    at.button_group(key="fp_size").set_value("Orders").run()
+    at.button_group(key="fp_y").set_value("Adjusted").run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert len(calls) == 1 and _note_names(at) == ["note:ai", "note:ai"]
+    assert _scatter_spec(at)["layout"]["yaxis"].get("type") != "log"
+
+
+def test_ai_chart_notes_without_a_key_fall_back(monkeypatch, synthetic_dir):
+    monkeypatch.delenv(config.OPENROUTER_KEY_ENV, raising=False)
+    at = _run(monkeypatch, synthetic_dir)
+    at.button(key="fp_notes_ai").click().run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert set(_note_names(at)) == {"note:rule"}
+    assert any("AI notes not shown (no OpenRouter API key)" in w.value for w in at.warning)
+    assert not at.session_state["notes_cache"]

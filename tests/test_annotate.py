@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from datetime import date
 from pathlib import Path
 
+import httpx
 import numpy as np
 import pandas as pd
 import pytest
 
-from ga4app import annotate, config, data, metrics, narrative, phase2
+from ga4app import annotate, config, data, llm, metrics, narrative, phase2
 from ga4app.types import ChartNote, Filters, Thresholds
 
 TH = Thresholds(views=1000.0, conversion=0.005, views_rule="median")
@@ -268,3 +270,94 @@ def test_notes_for_an_empty_chart():
     assert annotate.rule_based_notes(empty).notes == []
     assert annotate.validate_notes([ChartNote("G1", "highlight", "a", "b")], empty, source="rule").dropped == [
         ("G1", "unknown anchor")]
+
+
+# --------------------------------------------------------------------------- the model call
+
+
+@pytest.fixture(autouse=True)
+def _offline(monkeypatch):
+    monkeypatch.delenv(config.LLM_FAKE_ENV, raising=False)
+    monkeypatch.setattr("ga4app.llm._sleep", lambda s: None)
+
+
+KEY = "sk-or-v1-testkey0123456789abcdef"
+
+
+def _status(code: int, message: str = "nope") -> httpx.MockTransport:
+    return httpx.MockTransport(lambda request: httpx.Response(code, json={"error": {"code": code, "message": message}}))
+
+
+def test_build_messages_sends_the_anchors_and_nothing_else(scatter):
+    system, user = annotate.build_messages(scatter)
+    assert system["role"] == "system" and "at most 4 anchors" in system["content"]
+    assert user["content"].startswith("Annotate this chart. JSON:\n")
+    sent = json.loads(user["content"].split("\n", 1)[1])
+    assert sent == {"chart": annotate.CHART_SCATTER, "question": scatter.question, "scope": scatter.scope,
+                    "anchors": scatter.anchors}
+    assert "w1" not in user["content"]  # product keys stay in the app
+
+
+def test_cache_key_follows_the_anchors_model_and_prompt(scatter, monkeypatch):
+    key = annotate.cache_key(scatter, "m")
+    assert key == annotate.cache_key(annotate.AnchorSet(scatter.chart, dict(scatter.scope), list(scatter.anchors)), "m")
+    assert key != annotate.cache_key(scatter, "other")
+    assert key != annotate.cache_key(annotate.AnchorSet(scatter.chart, scatter.scope, scatter.anchors[:2]), "m")
+    monkeypatch.setattr(annotate, "NOTES_PROMPT_VERSION", "notes-test")
+    assert key != annotate.cache_key(scatter, "m")
+
+
+def test_cache_key_ignores_display_controls(synthetic_dir):
+    """Raw/Adjusted and Log/Linear do not change the anchors, so the notes are reused. (Raw/Adjusted
+    re-classifies the quadrants; the key would change only if that re-coded the products.)"""
+    raw, _ = _snapshot_scatter(synthetic_dir, y="cr_raw")
+    adjusted, _ = _snapshot_scatter(synthetic_dir, y="cr_adj")
+    assert annotate.cache_key(raw, "m") == annotate.cache_key(adjusted, "m")
+    # Log/Linear, bubble size and colour are arguments of the chart only, never of the anchors.
+    assert set(inspect.signature(annotate.scatter_anchors).parameters) == {"payload", "products", "conflict_keys"}
+
+
+def test_ai_notes_with_the_fake_responder(scatter):
+    result = annotate.ai_notes(scatter, api_key=KEY, model=config.DEFAULT_MODEL,
+                               transport=llm.fake_transport(respond=annotate.fake_respond))
+    assert result.source == "ai" and result.error is None and result.dropped == []
+    assert [(n.anchor, n.kind, n.n) for n in result.notes] == [("W1", "highlight", 1), ("W2", "caution", 2)]
+    assert result.model == llm.FAKE_MODEL and result.usage == llm.FAKE_USAGE
+
+
+def test_ai_notes_uses_the_fake_responder_in_fake_mode(scatter, monkeypatch):
+    monkeypatch.setenv(config.LLM_FAKE_ENV, "1")
+    result = annotate.ai_notes(scatter, api_key=KEY, model=config.DEFAULT_MODEL)
+    assert result.source == "ai" and [n.anchor for n in result.notes] == scatter.ids()[:2]
+
+
+def test_ai_notes_drops_invented_numbers(scatter):
+    reply = _reply(_note("G1", "Google Cloud Sticker [G1] converts at 2.4× the average."),
+                   _note("X1", "Retiring it would add 42 purchases.", kind="caution"))
+    result = annotate.ai_notes(scatter, api_key=KEY, model="m", transport=llm.fake_transport(lambda body: [reply]))
+    assert [n.anchor for n in result.notes] == ["G1"] and result.source == "ai"
+    assert result.dropped == [("X1", "42 is not a number from its data")]
+
+
+@pytest.mark.parametrize("code, reason", [(401, "invalid API key, HTTP 401"), (402, "out of OpenRouter credits, HTTP 402")])
+def test_ai_notes_openrouter_error_gives_the_rule_based_notes(scatter, code, reason):
+    result = annotate.ai_notes(scatter, api_key=KEY, model="m", transport=_status(code))
+    assert result.source == "rule" and result.error == reason
+    assert result.notes == annotate.rule_based_notes(scatter).notes
+
+
+def test_ai_notes_empty_reply_or_no_key_gives_the_rule_based_notes(scatter):
+    empty = annotate.ai_notes(scatter, api_key=KEY, model="m", transport=llm.fake_transport(lambda body: [" "]))
+    assert empty.source == "rule" and "returned no text" in empty.error
+    assert empty.notes == annotate.rule_based_notes(scatter).notes
+    no_key = annotate.ai_notes(scatter, api_key=None, model="m", transport=llm.fake_transport(annotate.fake_respond))
+    assert no_key.source == "rule" and no_key.error == "no OpenRouter API key"
+    no_model = annotate.ai_notes(scatter, api_key=KEY, model=" ")
+    assert no_model.source == "rule" and no_model.error == "no model selected"
+
+
+def test_ai_notes_without_anchors_makes_no_call():
+    calls = []
+    result = annotate.ai_notes(annotate.AnchorSet(annotate.CHART_SCATTER, {}), api_key=KEY, model="m",
+                               transport=llm.fake_transport(lambda body: calls.append(body) or []))
+    assert calls == [] and result.notes == [] and result.error is None

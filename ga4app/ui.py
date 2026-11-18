@@ -23,6 +23,7 @@ QUESTIONS = {
     "Phase 2b": "Which categories are trending on Google ahead of our own traffic?",
 }
 COST_NOTE = "About \\$0.02–0.05 per verdict with Claude Opus 5.5; free models are rate-limited."
+NOTES_COST_NOTE = "One model call per chart; the notes are kept when only the display changes."
 
 
 def esc(text: Any) -> str:
@@ -176,6 +177,12 @@ def verdict_block(payload: dict, *, key_prefix: str) -> None:
 # --------------------------------------------------------------------------- chart notes
 
 
+@st.cache_resource
+def _shared_notes_cache() -> dict[str, NotesResult]:
+    """AI chart notes shared across sessions (outputs contain no secrets)."""
+    return {}
+
+
 def _notes_on(toggle_key: str) -> None:
     st.session_state[toggle_key] = True
 
@@ -183,15 +190,38 @@ def _notes_on(toggle_key: str) -> None:
 def chart_notes_controls(
     anchors: annotate.AnchorSet, rule_notes: NotesResult | None = None, *, key_prefix: str
 ) -> NotesResult | None:
-    """The "Point out what matters" toggle above a chart (off by default). Returns the notes to
-    draw, or None while the toggle is off. ``rule_notes`` defaults to
-    ``annotate.rule_based_notes(anchors)``."""
+    """Above a chart: the "Point out what matters" toggle (off by default) and "Write AI notes".
+
+    Returns the notes to draw, or None while the toggle is off: AI notes cached for these anchors
+    and this model when there are some, else ``rule_notes`` (default
+    ``annotate.rule_based_notes(anchors)``). The button (which also turns the toggle on) calls the
+    model once, under a spinner; only results whose notes passed the checks are cached, in the
+    session and across sessions, by ``annotate.cache_key``.
+    """
+    model, api_key, _source = state.ai_settings()
     toggle_key = f"{key_prefix}notes_on"
-    st.toggle("Point out what matters", key=toggle_key,
+    c1, c2, c3 = st.columns([2.0, 1.3, 2.7], vertical_alignment="center")
+    c1.toggle("Point out what matters", key=toggle_key,
               help="Numbered notes on the chart for the bubbles, bars or cells that matter most for the "
                    "homepage decision. Every number in a note is checked against the data.")
+    clicked = c2.button("Write AI notes", key=f"{key_prefix}notes_ai", disabled=not model or not anchors.anchors,
+                        on_click=_notes_on, args=(toggle_key,), type="secondary")
+    c3.caption(NOTES_COST_NOTE + ("" if api_key or llm.fake_mode() else
+                                  " Add an OpenRouter key under **AI narrator** in the sidebar."))
     if not st.session_state.get(toggle_key):
         return None
+    cache = st.session_state.setdefault(state.NOTES_CACHE, {})
+    ck = annotate.cache_key(anchors, model or "-")
+    if clicked and model:
+        with st.spinner("Writing notes…"):
+            result = annotate.ai_notes(anchors, api_key=api_key, model=model)
+        if result.source == "ai":
+            cache[ck] = result
+            _shared_notes_cache()[ck] = result
+        return result
+    hit = cache.get(ck) or _shared_notes_cache().get(ck)
+    if hit is not None:
+        return hit
     return rule_notes if rule_notes is not None else annotate.rule_based_notes(anchors)
 
 

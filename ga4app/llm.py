@@ -16,7 +16,7 @@ import json
 import os
 import re
 import time
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -363,10 +363,12 @@ def _error_event(err: Any, model: str | None, usage: dict | None) -> StreamEvent
 # --------------------------------------------------------------------------- fake transport
 
 
-def fake_transport() -> httpx.MockTransport:
-    """Canned OpenRouter SSE stream: a comment, 3 content chunks citing [G1]/[W1]/[X1], usage, [DONE].
+def fake_transport(respond: Callable[[dict], Iterable[str]] | None = None) -> httpx.MockTransport:
+    """Canned OpenRouter SSE stream: a comment, the content chunks, usage, [DONE].
 
-    Mirrors OpenRouter by rejecting sampling parameters with a 400.
+    ``respond`` maps the request body (a dict) to the text chunks to stream; the default streams
+    ``FAKE_TEXT_CHUNKS`` (3 verdict chunks citing [G1]/[W1]/[X1]). Mirrors OpenRouter by rejecting
+    sampling parameters with a 400.
     """
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -378,12 +380,13 @@ def fake_transport() -> httpx.MockTransport:
         if bad:
             error = {"code": 400, "message": f"unsupported parameter(s): {', '.join(bad)}"}
             return httpx.Response(400, json={"error": error})
-        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=_fake_sse())
+        chunks = tuple(respond(body if isinstance(body, dict) else {})) if respond is not None else FAKE_TEXT_CHUNKS
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=_fake_sse(chunks))
 
     return httpx.MockTransport(handler)
 
 
-def _fake_sse() -> bytes:
+def _fake_sse(chunks: Sequence[str]) -> bytes:
     def event(delta: dict, finish: str | None, usage: dict | None = None) -> str:
         chunk: dict[str, Any] = {
             "id": "gen-offline-fake",
@@ -396,9 +399,9 @@ def _fake_sse() -> bytes:
             chunk["usage"] = usage
         return f"data: {json.dumps(chunk)}\n\n"
 
-    last = len(FAKE_TEXT_CHUNKS) - 1
+    last = len(chunks) - 1
     parts = [": OPENROUTER PROCESSING\n\n"]
-    for i, text in enumerate(FAKE_TEXT_CHUNKS):
+    for i, text in enumerate(chunks):
         delta = {"role": "assistant", "content": text} if i == 0 else {"content": text}
         parts.append(event(delta, "stop" if i == last else None))
     parts.append(event({"content": ""}, "stop", FAKE_USAGE))
