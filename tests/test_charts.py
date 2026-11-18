@@ -251,6 +251,7 @@ def _all_figures() -> dict[str, go.Figure]:
         "scatter_log": charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP, y_scale="log"),
         "scatter_notes": charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP, notes=_scatter_notes()),
         "bars_notes": charts.period_bars(_period_df(), notes=[ChartNote("Apparel·cyber_week", "caution", "a", "b")]),
+        "heatmap_notes": charts.device_heatmap(_device_matrix(), _lean(), notes=[ChartNote("R2·mobile", "caution", "a", "b")]),
         "slots": charts.slot_candidates(_slot_scores(), ["k0", "k14"]),
         "device_bars": charts.device_bars(_device_matrix().query("product_key == 'alpha tee'")),
         "daily_gap": charts.daily_conversion(_season_daily(), PERIODS),
@@ -841,6 +842,47 @@ def test_bar_note_sits_above_its_bar_and_the_y_range_grows():
     assert fig.layout.yaxis.range[1] == pytest.approx(top * charts.NOTE_BAR_HEADROOM)
     unplaced = charts.period_bars(_period_df(), notes=[ChartNote("Nope·x", "highlight", "a", "b")])
     assert unplaced.to_json() == plain.to_json()  # no note drawn: the figure is unchanged
+
+
+def test_heatmap_cells_match_the_drawn_heatmap():
+    m = _device_matrix()
+    m.loc[(m["device"] == "tablet") & (m["product_key"] == "alpha tee"), "views"] = 5
+    cells = charts.heatmap_cells(m, codes={"beta mug": "G2"})
+    fig = charts.device_heatmap(m, _lean())
+    assert len(cells) == 4 * len(config.DEVICES)
+    assert list(dict.fromkeys(cells["item_name"])) == list(fig.layout.yaxis.ticktext)
+    for t in fig.data:
+        for i, row in enumerate(np.asarray(t.z, dtype=float)):
+            for x, z in zip(t.x, row):
+                cell = cells[(cells["row"] == i) & (cells["col"] == x)].iloc[0]
+                assert (np.isnan(z) and np.isnan(cell["z"])) or z == pytest.approx(cell["z"])
+    sparse = cells[cells["sparse"]]
+    assert list(sparse["anchor"]) == ["R1·tablet"]
+    assert "G2·mobile" in set(cells["anchor"])
+    assert charts.heatmap_cells(None).empty and charts.heatmap_cells(pd.DataFrame()).empty
+
+
+def test_heatmap_note_adds_a_cell_rectangle_and_a_badge():
+    plain = charts.device_heatmap(_device_matrix(), _lean())
+    notes = NotesResult([ChartNote("W1·desktop", "highlight", "Desktop-first hero", "Up.", 1),
+                         ChartNote("R3·mobile", "caution", "Weak", "Down & <out>.", 2),
+                         ChartNote("Z9·mobile", "highlight", "Missing", "No such cell.", 3)], source="rule")
+    fig = charts.device_heatmap(_device_matrix(), _lean(), notes=notes, codes={"alpha tee": "W1"})
+    rects = [s for s in fig.layout.shapes if s.name == "note:rule"]
+    badges = _note_ann(fig)
+    assert len(rects) == len(badges) == 2
+    names = list(fig.layout.yaxis.ticktext)
+    alpha, beta = names.index("Alpha Tee"), names.index("Beta Mug")
+    desktop, mobile = config.DEVICES.index("desktop"), config.DEVICES.index("mobile")
+    assert rects[0].x0 < desktop < rects[0].x1 and rects[0].y0 < alpha < rects[0].y1
+    assert rects[0].line.color == config.PALETTE["ink"] and rects[1].line.color == config.PALETTE["coral"]
+    assert rects[1].x0 < mobile < rects[1].x1 and rects[1].y0 < beta < rects[1].y1
+    assert badges[0].text == "<b>1</b>" and badges[1].text == "<b>2</b> <b>!</b>"  # no label on the grid
+    assert (badges[0].x, badges[0].y) == (desktop - 0.5, alpha - 0.5)
+    assert badges[1].hovertext == "Weak: Down &amp; &lt;out&gt;."
+    # Without notes the heatmap is unchanged.
+    for empty in (None, [], NotesResult()):
+        assert charts.device_heatmap(_device_matrix(), _lean(), notes=empty).to_json() == plain.to_json()
 
 
 def test_note_text_is_escaped():

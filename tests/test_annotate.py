@@ -450,3 +450,114 @@ def test_synthetic_holiday_notes_find_the_planted_apparel_uplift(synthetic_dir, 
 def test_rule_based_bar_notes_pass_on_the_real_snapshot(real_data_dir, base, focus):
     result = annotate.rule_based_notes(_snapshot_bars(real_data_dir, base, focus))
     assert result.notes and result.dropped == []
+
+
+# --------------------------------------------------------------------------- Device Split
+
+
+def make_matrix(spec: dict[str, tuple[float, float, float, float]], tablet_views: int = 300) -> pd.DataFrame:
+    """A ``device_matrix``-shaped frame: product -> (overall cr_adj, desktop, mobile, tablet index)."""
+    rates = {"desktop": 0.006, "mobile": 0.004, "tablet": 0.003}
+    rows = []
+    for key, (adj, *idx) in spec.items():
+        for dev, ix in zip(config.DEVICES, idx):
+            views = tablet_views if dev == "tablet" else 4000
+            rows.append({"product_key": key, "item_name": key.title(), "device": dev, "views": views,
+                         "purchases": int(views * rates[dev] * ix), "cr_raw": rates[dev] * ix, "cr_adj_d": rates[dev] * ix,
+                         "device_rate": rates[dev], "index": ix, "cr_adj": adj, "p_bar": 0.005})
+    return pd.DataFrame(rows)
+
+
+SPEC = {  # alpha: strongly desktop; beta: mobile; gamma: as usual everywhere; delta: within +-19% but a strong lean
+    "alpha tee": (0.010, 8.0, 0.5, 1.0),
+    "beta mug": (0.004, 0.1, 1.6, 0.9),
+    "gamma bag": (0.005, 1.0, 1.05, 1.0),
+    "delta pen": (0.005, 1.1, 0.9, 1.0),
+}
+LEAN = pd.DataFrame({"product_key": list(SPEC), "lean": ["Desktop-first", "Mobile-first", "Both", "Desktop-first"]})
+
+
+def _heat(spec=SPEC, lean=LEAN, codes=None, **kw) -> annotate.AnchorSet:
+    from ga4app import charts
+
+    cells = charts.heatmap_cells(make_matrix(spec, **kw), codes=codes if codes is not None else {"alpha tee": "W1"})
+    return annotate.heatmap_anchors(cells, lean, scope={"filters": "Nov 01, 2020 – Jan 25, 2021", "candidates": "Pick products"})
+
+
+def test_heatmap_anchors_follow_the_cells():
+    from ga4app import charts
+
+    anchors = _heat()
+    assert anchors.chart == annotate.CHART_HEATMAP
+    ids = anchors.ids()
+    # Rows run by overall adjusted conversion: alpha, delta, gamma (a tie, by key), then beta.
+    assert "W1·desktop" in ids and "R4·mobile" in ids  # the code, else the row number
+    assert not any(i.startswith("R3") for i in ids)  # gamma bag: as usual everywhere, no lean
+    assert {"R2·desktop", "R2·mobile"} <= set(ids)  # delta pen: within +-19% but a strong lean
+    cells = charts.heatmap_cells(make_matrix(SPEC), codes={"alpha tee": "W1"}).set_index("anchor")
+    w1 = anchors.by_id["W1·desktop"]
+    assert w1["x_usual"] == round(cells.loc["W1·desktop", "rel"], 2)  # the number behind the cell's colour
+    assert w1["conversion_pct"] == round(100 * cells.loc["W1·desktop", "shown"], 2)  # the cell's text
+    assert w1 == {"id": "W1·desktop", "name": "Alpha Tee", "device": "desktop", "conversion_pct": 4.8, "x_usual": 4.0,
+                  "views": 4000, "purchases": 192, "lean": "Desktop-first"}
+    assert anchors.keys["R4·mobile"] == "beta mug"
+
+
+def test_heatmap_anchors_skip_sparse_tablet_cells():
+    assert any(i.endswith("tablet") for i in _heat(tablet_views=300).ids())
+    assert not any(i.endswith("tablet") for i in _heat(tablet_views=10).ids())
+
+
+def test_heatmap_anchors_are_capped_and_keep_strong_leans():
+    rng = np.random.default_rng(4)
+    spec = {f"p{i:02d}": (0.005, *rng.uniform(0.2, 4.0, 2), 1.0) for i in range(30)}
+    spec["lean one"] = (0.005, 1.05, 0.95, 1.0)  # weak cells, but a strong lean
+    lean = pd.DataFrame({"product_key": list(spec), "lean": ["Both"] * 30 + ["Mobile-first"]})
+    anchors = _heat(spec, lean, codes={})
+    assert len(anchors.anchors) == config.HEATMAP_ANCHORS_MAX == 30
+    assert sum(a["lean"] == "Mobile-first" for a in anchors.anchors) == 3  # all its readable cells
+    rows = [int(i.split("·")[0][1:]) for i in anchors.ids()]
+    assert rows == sorted(rows)  # reading order
+
+
+def test_rule_based_heatmap_notes():
+    result = annotate.rule_based_notes(_heat())
+    assert result.dropped == []
+    assert [(n.anchor, n.kind, n.label) for n in result.notes] == [
+        ("W1·desktop", "highlight", "Desktop-first hero"),  # the strongest favoured cell first (4x)
+        ("R4·mobile", "highlight", "Mobile-first hero"),  # beta mug (2x); delta pen's 1.1x comes third
+        ("R2·mobile", "caution", "Weak on mobile"),  # strongest remaining cell of another product (0.9x)
+    ]
+    assert result.notes[0].detail == "Alpha Tee converts at 4× its usual rate on desktop: 4.8% on 4,000 views."
+
+
+def test_rule_based_heatmap_caution_for_a_weak_cell():
+    spec = {"a": (0.005, 1.0, 1.0, 1.0), "b": (0.005, 0.3, 1.0, 1.0)}
+    lean = pd.DataFrame({"product_key": ["a", "b"], "lean": ["Both", "Both"]})
+    (note,) = annotate.rule_based_notes(_heat(spec, lean, codes={})).notes
+    assert note.kind == "caution" and note.label == "Weak on desktop"
+
+
+def _snapshot_heat(data_dir: Path) -> annotate.AnchorSet:
+    from ga4app import charts
+
+    snap = data.load_snapshot(data_dir)
+    m = metrics.season_prior_strength(snap.item_daily, snap.product_dim)
+    products, _ = metrics.compute_products(snap.item_daily, snap.product_dim, Filters(), m)
+    eligible = products[products["eligible"].astype(bool)].sort_values(["cr_adj", "views"], ascending=False)
+    keys = eligible[eligible["quadrant"].isin(["Winners", "Hidden gems"])]["product_key"].astype(str).head(40).tolist()
+    matrix = metrics.device_matrix(snap.item_daily, snap.product_dim, keys, Filters(), m)
+    codes = {k: c for k, c in zip(products["product_key"].astype(str), products["code"].astype(str)) if c}
+    return annotate.heatmap_anchors(charts.heatmap_cells(matrix, codes=codes), metrics.device_lean(matrix))
+
+
+def test_rule_based_heatmap_notes_pass_on_the_synthetic_snapshot(synthetic_dir):
+    anchors = _snapshot_heat(synthetic_dir)
+    result = annotate.rule_based_notes(anchors)
+    assert result.notes and result.dropped == []
+    assert any(n.label in ("Mobile-first hero", "Desktop-first hero") for n in result.notes)
+
+
+def test_rule_based_heatmap_notes_pass_on_the_real_snapshot(real_data_dir):
+    result = annotate.rule_based_notes(_snapshot_heat(real_data_dir))
+    assert result.notes and result.dropped == []

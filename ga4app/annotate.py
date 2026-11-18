@@ -39,10 +39,12 @@ SEP = config.NOTE_ANCHOR_SEP  # anchor IDs of bars and cells: "Apparel·cyber_we
 
 CHART_SCATTER = "feature_picks_scatter"
 CHART_BARS = "holiday_shift_bars"
+CHART_HEATMAP = "device_split_heatmap"
 
 QUESTIONS = {
     CHART_SCATTER: "Which products earn a holiday homepage slot, and which waste one?",
     CHART_BARS: "Which categories convert better or worse in the holiday window than in the base window?",
+    CHART_HEATMAP: "Which homepage candidates convert better on mobile or on desktop?",
 }
 
 SCATTER_ANCHORS_MAX = 15  # the verdict payload's coded products: 5 per actionable quadrant
@@ -232,6 +234,55 @@ def holiday_anchors(groups: pd.DataFrame | None, *, filters: str = "") -> Anchor
         scope["filters"] = filters
     scope["significance_level"] = narrative.SHIFT_ALPHA
     return AnchorSet(CHART_BARS, scope, anchors, empty=empty.empty)
+
+
+# --------------------------------------------------------------------------- anchors: Device Split
+
+
+def heatmap_anchors(cells: pd.DataFrame | None, lean: pd.DataFrame | None = None, *,
+                    scope: Mapping[str, Any] | None = None) -> AnchorSet:
+    """Anchors for the Device Split heatmap, from ``charts.heatmap_cells`` (the numbers the cells
+    show; anchor IDs ``G1·mobile``, or ``R3·mobile`` for an uncoded row) and ``metrics.device_lean``.
+
+    Never offered: sparse tablet cells (drawn as "–"), and cells within +-19% of the product's
+    usual rate (``abs(log2(rel)) < config.HEATMAP_NOTE_MIN_LOG2``) unless the product has a strong
+    lean. At most ``config.HEATMAP_ANCHORS_MAX`` cells: strong-lean products' cells first, then the
+    strongest, listed in reading order.
+    """
+    empty = "No product converts clearly differently by device here, so there is nothing to point out."
+    need = {"anchor", "product_key", "device", "row", "col", "rel", "sparse"}
+    if not isinstance(cells, pd.DataFrame) or cells.empty or not need <= set(cells.columns):
+        return AnchorSet(CHART_HEATMAP, dict(scope or {}), empty=empty)
+    lean_of: dict[str, str] = {}
+    if isinstance(lean, pd.DataFrame) and {"product_key", "lean"} <= set(lean.columns):
+        lean_of = {narrative._text(k): narrative._text(v) for k, v in zip(lean["product_key"], lean["lean"])}
+    picked = []
+    for r in cells.to_dict("records"):
+        rel = narrative._num(r.get("rel"))
+        if narrative._flag(r.get("sparse")) or rel is None or rel <= 0:
+            continue
+        key = narrative._text(r.get("product_key"))
+        call = lean_of.get(key, "")
+        strong = call in narrative.STRONG_LEANS
+        strength = abs(math.log2(rel))
+        if strength < config.HEATMAP_NOTE_MIN_LOG2 and not strong:
+            continue
+        anchor: dict[str, Any] = {
+            "id": narrative._text(r.get("anchor")),
+            "name": narrative._display_name({"item_name": r.get("item_name"), "product_key": key}),
+            "device": narrative._text(r.get("device")),
+            "conversion_pct": narrative._pct(r.get("shown", r.get("cr_raw"))),
+            "x_usual": round(rel, 2),
+            "views": narrative._int(r.get("views")),
+            "purchases": narrative._int(r.get("purchases")),
+        }
+        if call:
+            anchor["lean"] = call
+        picked.append((not strong, -strength, int(r["row"]), int(r["col"]), anchor, key))
+    picked.sort(key=lambda t: t[:4])
+    kept = sorted(picked[: config.HEATMAP_ANCHORS_MAX], key=lambda t: (t[2], t[3]))
+    return AnchorSet(CHART_HEATMAP, dict(scope or {}), [t[4] for t in kept], empty=empty,
+                     keys={t[4]["id"]: t[5] for t in kept})
 
 
 # --------------------------------------------------------------------------- the model call
@@ -590,9 +641,45 @@ def _bar_drafts(anchors: AnchorSet) -> list[dict[str, str]]:
     return drafts
 
 
+_FAVOURED = {"Mobile-first": "mobile", "Desktop-first": "desktop"}
+
+
+def _cell_product(anchor: Mapping[str, Any]) -> str:
+    return str(anchor["id"]).split(SEP, 1)[0]
+
+
+def _cell_detail(a: Mapping[str, Any]) -> str:
+    return (f"{a['name']} converts at {_fmt(a['x_usual'])}× its usual rate on {a['device']}: "
+            f"{_fmt(a.get('conversion_pct'))}% on {_fmt(a.get('views'))} views.")
+
+
+def _heatmap_drafts(anchors: AnchorSet) -> list[dict[str, str]]:
+    """The favoured-device cell of up to 2 strong-lean products, then the strongest remaining cell
+    (of another product when there is one)."""
+    def strength(a: Mapping[str, Any]) -> float:
+        return abs(math.log2(a["x_usual"])) if (a.get("x_usual") or 0) > 0 else 0.0
+
+    cells = [a for a in anchors.anchors if (a.get("x_usual") or 0) > 0]
+    favoured = [a for a in cells if _FAVOURED.get(a.get("lean", "")) == a.get("device")]
+    favoured.sort(key=lambda a: (-strength(a), str(a["id"])))
+    drafts = [{"anchor": str(a["id"]), "kind": "highlight", "label": f"{a['lean']} hero", "detail": _cell_detail(a)}
+              for a in favoured[:2]]
+    used_cells = {d["anchor"] for d in drafts}
+    used_products = {d["anchor"].split(SEP, 1)[0] for d in drafts}
+    rest = sorted((a for a in cells if a["id"] not in used_cells), key=lambda a: (-strength(a), str(a["id"])))
+    other = [a for a in rest if _cell_product(a) not in used_products] or rest
+    if other and strength(other[0]) > 0:
+        a = other[0]
+        up = a["x_usual"] > 1
+        drafts.append({"anchor": str(a["id"]), "kind": "highlight" if up else "caution",
+                       "label": f"{'Strong' if up else 'Weak'} on {a['device']}", "detail": _cell_detail(a)})
+    return drafts
+
+
 _DRAFTS = {
     CHART_SCATTER: _scatter_drafts,
     CHART_BARS: _bar_drafts,
+    CHART_HEATMAP: _heatmap_drafts,
 }
 
 

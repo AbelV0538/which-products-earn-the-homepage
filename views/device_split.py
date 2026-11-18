@@ -7,7 +7,7 @@ from dataclasses import replace
 import pandas as pd
 import streamlit as st
 
-from ga4app import charts, config, data, metrics, state, ui
+from ga4app import annotate, charts, config, data, metrics, state, ui
 from ga4app.types import Filters
 
 P = "ds_"
@@ -86,13 +86,24 @@ st.subheader("Candidate conversion by device")
 heat_table = matrix[["product_key", "item_name", "device", "views", "purchases", "cr_raw", "cr_adj_d", "index"]].copy()
 for c in ("cr_raw", "cr_adj_d"):
     heat_table[c] = 100 * heat_table[c].astype(float)
+# Notes name a product by its Feature Picks code (median cutoff), or by its row when it has none.
+codes = {k: c for k, c in zip(products["product_key"].astype(str), products["code"].astype(str)) if c}
+preset = st.session_state.get(state.PRESET)
+note_anchors = annotate.heatmap_anchors(
+    charts.heatmap_cells(matrix, codes=codes), lean,
+    scope={"window": config.PERIODS[preset].label if preset else "Custom range", "filters": f.label(), "candidates": mode},
+)
+notes = ui.chart_notes_controls(note_anchors, key_prefix=P)
 ui.chart_with_table(
-    charts.device_heatmap(matrix, lean), heat_table.round(3), key=f"{P}heat", file_name="device_split_heatmap.csv",
+    charts.device_heatmap(matrix, lean, notes=notes, codes=codes), heat_table.round(3), key=f"{P}heat",
+    file_name="device_split_heatmap.csv",
     caption="Cell text is the product's conversion on that device; colour compares it with the product's own usual "
             "rate across devices: navy = converts better on this device, coral = worse, gray = as usual. "
             f"Tablet is faded (low volume) and shows \"–\" under {charts.LOW_VOLUME_MIN_VIEWS} views. A lean column "
             "appears on the right only when some product converts clearly better on one device.",
+    alt_extra=ui.notes_alt(notes),
 )
+ui.chart_notes_list(notes, note_anchors, key_prefix=P)
 
 names = matrix.drop_duplicates("product_key").set_index("product_key")["item_name"].astype(str)
 mob = [names.get(k, k) for k in lean.loc[lean["lean"] == "Mobile-first", "product_key"]]

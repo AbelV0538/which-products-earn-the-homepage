@@ -30,12 +30,14 @@ from .types import ChartNote, NotesResult, Thresholds
 
 __all__ = [
     "FONT_FAMILY",
+    "cell_anchor",
     "TEMPLATE",
     "apply_template",
     "daily_conversion",
     "device_bars",
     "device_heatmap",
     "empty_figure",
+    "heatmap_cells",
     "period_bars",
     "product_timeline",
     "quadrant_scatter",
@@ -988,28 +990,32 @@ def transition_matrix(
 # --------------------------------------------------------------------------- Device Split
 
 
-def device_heatmap(
-    matrix: pd.DataFrame | None,
-    lean: pd.DataFrame | None = None,
-    *,
-    text_col: str = "cr_raw",
-    max_label: int = 38,
-    height: int | None = None,
-) -> go.Figure:
-    """Products (rows, best overall ``cr_adj`` first) x devices.
+def cell_anchor(product: str, device: str) -> str:
+    """The anchor ID of one heatmap cell: ``"G1·mobile"`` (code), or ``"R3·mobile"`` (3rd row, uncoded)."""
+    return f"{product}{config.NOTE_ANCHOR_SEP}{device}"
 
-    Takes ``metrics.device_matrix`` and optional ``metrics.device_lean`` output. Colour answers
-    "does it differ by device?": ``log2((cr_adj_d / device_rate) / (cr_adj / site_rate))``, the
-    product's device index relative to its own all-device index, clipped to +-1 (gray = as usual,
-    navy = over-performs on this device, coral = under-performs); cell text is
-    ``text_col`` as a percentage; the low-volume tablet column is faded; the lean is listed on
-    the right.
+
+_CELL_COLUMNS = ("product_key", "item_name", "device", "row", "col", "views", "purchases", "cr_raw", "shown", "rel",
+                 "z", "sparse", "anchor")
+
+
+def heatmap_cells(
+    matrix: pd.DataFrame | None, *, text_col: str = "cr_raw", codes: Mapping[str, str] | None = None
+) -> pd.DataFrame:
+    """One row per drawn cell of ``device_heatmap``: the numbers the chart shows, so notes quote them.
+
+    Columns: ``product_key, item_name, device``, ``row`` / ``col`` (positions; rows ordered by overall
+    ``cr_adj``, best first), ``views, purchases, cr_raw``, ``shown`` (the cell text value,
+    ``text_col``), ``rel`` (device index over the product's usual index; the colour is
+    ``z = clip(log2(rel), -1, 1)``, NaN for sparse cells), ``sparse`` (tablet cells under
+    ``LOW_VOLUME_MIN_VIEWS`` views, drawn as "–") and ``anchor`` (``cell_anchor`` with the product's
+    code from ``codes``, else ``R<row number>``). Empty when ``matrix`` has no product/device columns.
     """
     dev_col = None
     if _has(matrix) and "product_key" in matrix.columns:
         dev_col = next((c for c in ("device", "device_category") if c in matrix.columns), None)
     if dev_col is None:
-        return empty_figure("Pick products to compare across devices.", height=height or 320)
+        return pd.DataFrame(columns=list(_CELL_COLUMNS))
     df = matrix.assign(_k=_txt(matrix, "product_key"), _d=_txt(matrix, dev_col))
     present = list(dict.fromkeys(df["_d"]))
     devices = [d for d in config.DEVICES if d in present] + sorted(d for d in present if d not in config.DEVICES)
@@ -1058,7 +1064,57 @@ def device_heatmap(
     z = np.where(sparse, np.nan, z)
     shown = grid(text_col)
     name_of = dict(zip(df["_k"], _txt(df, "item_name", "")))
-    names = [_short(name_of.get(k) or k, max_label) for k in order]
+    code_of = {str(k): str(v) for k, v in (codes or {}).items() if isinstance(v, str) and v}
+    rows, cols = np.divmod(np.arange(n * len(devices)), len(devices))
+    return pd.DataFrame({
+        "product_key": [order[i] for i in rows],
+        "item_name": [name_of.get(order[i]) or order[i] for i in rows],
+        "device": [devices[j] for j in cols],
+        "row": rows, "col": cols,
+        "views": views.ravel(), "purchases": purch.ravel(), "cr_raw": raw.ravel(), "shown": shown.ravel(),
+        "rel": rel.ravel(), "z": z.ravel(), "sparse": sparse.ravel(),
+        "anchor": [cell_anchor(code_of.get(order[i]) or f"R{i + 1}", devices[j]) for i, j in zip(rows, cols)],
+    })
+
+
+def device_heatmap(
+    matrix: pd.DataFrame | None,
+    lean: pd.DataFrame | None = None,
+    *,
+    text_col: str = "cr_raw",
+    max_label: int = 38,
+    height: int | None = None,
+    notes: NotesResult | Sequence[ChartNote] | None = None,
+    codes: Mapping[str, str] | None = None,
+) -> go.Figure:
+    """Products (rows, best overall ``cr_adj`` first) x devices.
+
+    Takes ``metrics.device_matrix`` and optional ``metrics.device_lean`` output. Colour answers
+    "does it differ by device?": ``log2((cr_adj_d / device_rate) / (cr_adj / site_rate))``, the
+    product's device index relative to its own all-device index, clipped to +-1 (gray = as usual,
+    navy = over-performs on this device, coral = under-performs); cell text is
+    ``text_col`` as a percentage; the low-volume tablet column is faded; the lean is listed on
+    the right. The per-cell numbers come from ``heatmap_cells``.
+
+    ``notes`` anchored on a cell (``cell_anchor``, with the product codes in ``codes``) get a
+    rectangle around the cell and a numbered badge in its corner; their labels go in the list
+    under the chart, because the grid is too dense for them.
+    """
+    cells = heatmap_cells(matrix, text_col=text_col, codes=codes)
+    if cells.empty:
+        return empty_figure("Pick products to compare across devices.", height=height or 320)
+    devices = list(cells.drop_duplicates("col").sort_values("col")["device"])
+    order = list(cells.drop_duplicates("row").sort_values("row")["product_key"])
+    n, m = len(order), len(devices)
+
+    def wide(col: str) -> np.ndarray:
+        return cells.sort_values(["row", "col"])[col].to_numpy().reshape(n, m)
+
+    views, purch, raw = wide("views").astype(float), wide("purchases").astype(float), wide("cr_raw").astype(float)
+    rel, z, shown = wide("rel").astype(float), wide("z").astype(float), wide("shown").astype(float)
+    sparse = wide("sparse").astype(bool)
+    full_name = dict(zip(cells["product_key"], cells["item_name"]))
+    names = [_short(full_name[k], max_label) for k in order]
 
     hover = np.empty((n, len(devices)), dtype=object)
     for i in range(n):
@@ -1124,6 +1180,23 @@ def device_heatmap(
                     xref="paper", yref="y", x=1, y=i, xanchor="left", xshift=10,
                     font={"color": INK if call in _LEAN_STRONG else INK_2, "size": 11},
                 )
+    note_list, source = _note_list(notes)
+    cell_at = {a: (int(r), int(c)) for a, r, c in zip(cells["anchor"], cells["row"], cells["col"])}
+    for k, note in enumerate(note_list):
+        if note.anchor not in cell_at:
+            continue
+        i, j = cell_at[note.anchor]
+        box = _note_box(note)
+        fig.add_shape(
+            name=f"note:{source}", type="rect", xref="x", yref="y", x0=j - 0.47, x1=j + 0.47, y0=i - 0.45,
+            y1=i + 0.45, line={"color": box["bordercolor"], "width": 2}, fillcolor="rgba(0,0,0,0)", layer="above",
+        )
+        # Rows run top to bottom (reversed axis), so y = i - 0.5 is the cell's top edge.
+        fig.add_annotation(
+            name=f"note:{source}", text=_note_badge(note, k), hovertext=_esc(f"{note.label}: {note.detail}"),
+            xref="x", yref="y", x=j - 0.5, y=i - 0.5, xanchor="left", yanchor="top", xshift=6, yshift=-4,
+            **{**box, "borderpad": 2, "font": {"color": INK, "size": 11}},
+        )
     low_volume = "<br><span style='font-size:10px'>low volume</span>"
     ticktext = [_esc(d) + (low_volume if d == "tablet" else "") for d in devices]
     apply_template(
