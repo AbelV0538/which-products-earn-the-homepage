@@ -6,11 +6,15 @@
 
 > **Status:** working app with 7 pages, running on real GA4 data pulled live from BigQuery plus real Google Trends data. An optional AI verdict and [AI chart notes](#chart-notes) have both been run live against OpenRouter. There are 465 automated tests, all passing, run on every push by GitHub Actions.
 
+**Live app: <https://which-earns-the-homepage.streamlit.app/>** (nothing to install; or run it locally, see [Quick start](#quick-start)).
+
 ![Feature Picks page](docs/screenshots/feature_picks.png)
 
 ---
 
 ## Quick start
+
+The quickest way to see the app is the hosted version: <https://which-earns-the-homepage.streamlit.app/>. To run it on your own machine instead:
 
 The app runs entirely from the small data files committed in `data/` (about 5 MB). It does **not** need BigQuery, the 450 MB CSV or an API key.
 
