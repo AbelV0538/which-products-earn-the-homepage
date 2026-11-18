@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 import pytest
 
 from ga4app import charts, config
-from ga4app.types import PRODUCT_COLUMNS, Thresholds
+from ga4app.types import PRODUCT_COLUMNS, ChartNote, NotesResult, Thresholds
 
 COLOR_MAP = {
     "Apparel": "#2a78d6",
@@ -249,6 +249,7 @@ def _all_figures() -> dict[str, go.Figure]:
         "trends": charts.trends_small_multiples(_trend_index(), PERIODS),
         "spike": charts.spike_share(_spikes(), "alpha tee", ["cyber_week"]),
         "scatter_log": charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP, y_scale="log"),
+        "scatter_notes": charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP, notes=_scatter_notes()),
         "slots": charts.slot_candidates(_slot_scores(), ["k0", "k14"]),
         "device_bars": charts.device_bars(_device_matrix().query("product_key == 'alpha tee'")),
         "daily_gap": charts.daily_conversion(_season_daily(), PERIODS),
@@ -256,6 +257,11 @@ def _all_figures() -> dict[str, go.Figure]:
         "timeline": charts.product_timeline(_daily(), PERIODS),
         "empty": charts.empty_figure("nothing"),
     }
+
+
+def _scatter_notes() -> NotesResult:
+    return NotesResult([ChartNote("G1", "highlight", "Best hidden gem", "a", 1),
+                        ChartNote("X1", "caution", "Most purchases forgone", "b", 2)], source="rule")
 
 
 def _slot_scores(n: int = 15) -> pd.DataFrame:
@@ -731,3 +737,91 @@ def test_item_gap_band_only_when_a_series_stops_at_the_cut():
 def test_short_label():
     assert charts.short_label("december") == "Dec push" and charts.short_label("january_4wk") == "Jan baseline"
     assert charts.short_label("post_cutoff") == "After cutoff" and charts.short_label("nope") == "nope"
+
+
+# --------------------------------------------------------------------------- chart notes
+
+
+def _note_ann(fig: go.Figure, source: str = "rule") -> list:
+    return [a for a in fig.layout.annotations if a.name == f"note:{source}"]
+
+
+def _code_row(products: pd.DataFrame, code: str) -> pd.Series:
+    return products.loc[products["code"] == code].iloc[0]
+
+
+# Annotation names per figure before chart notes existed: notes=None must keep them.
+BASELINE_ANNOTATIONS = {
+    "scatter": {"badge:Winners": 1, "badge:Hidden gems": 1, "badge:Wasted exposure": 1, "badge:Low priority": 1,
+                "threshold:views": 1, "threshold:conversion": 1, "overflow": 1},
+    "scatter_log": {"badge:Winners": 1, "badge:Hidden gems": 1, "badge:Wasted exposure": 1, "badge:Low priority": 1,
+                    "threshold:views": 1, "threshold:conversion": 1},
+    "period_bars": {"lift": 1},
+    "heatmap": {None: 13, "lean": 4},
+}
+
+
+def test_figures_without_notes_are_unchanged():
+    from collections import Counter
+
+    figs = _all_figures()
+    for name, expected in BASELINE_ANNOTATIONS.items():
+        assert dict(Counter(a.name for a in figs[name].layout.annotations)) == expected, name
+    products = _products()
+    for scale in ("linear", "log"):
+        plain = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale=scale)
+        for empty in (None, [], NotesResult()):
+            same = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale=scale, notes=empty)
+            assert same.to_json() == plain.to_json()
+
+
+def test_scatter_note_sits_on_its_bubble_on_log_axes():
+    products = _products()
+    gem = _code_row(products, "G1")
+    notes = NotesResult([ChartNote("G1", "highlight", "Best hidden gem", "Converts well.", 1)], source="ai")
+    fig = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale="log", notes=notes)
+    (ann,) = _note_ann(fig, "ai")
+    assert ann.x == pytest.approx(np.log10(gem["views"]))  # log axes take log10 coordinates
+    assert ann.y == pytest.approx(np.log10(gem["cr_raw"]))
+    assert ann.showarrow and ann.text == "<b>1</b> Best hidden gem" and ann.hovertext == "Converts well."
+    assert ann.bordercolor == config.PALETTE["ink"] and ann.font.color == config.PALETTE["ink"]
+    # The box is pushed toward the interior: left of a bubble in the right half, below one in the top third.
+    lo, hi = fig.layout.xaxis.range
+    assert (ann.ax < 0) == ((ann.x - lo) / (hi - lo) > 0.5)
+    y_lo, y_hi = fig.layout.yaxis.range
+    assert (ann.ay > 0) == ((ann.y - y_lo) / (y_hi - y_lo) > 2 / 3)
+    assert ann.standoff >= charts.BUBBLE_MIN_PX / 2
+
+
+def test_scatter_note_on_a_clipped_bubble_points_at_the_drawn_cap():
+    products = _products()
+    products.loc[0, "code"] = "G9"  # product 00 is clipped to the top edge on the linear axis
+    notes = [ChartNote("G9", "highlight", "Off the chart", "Clipped.")]
+    fig = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale="linear", notes=notes)
+    (ann,) = _note_ann(fig)
+    drawn = next(t.y[i] for t in fig.data for i, row in enumerate(t.customdata) if row[0] == "product 00")
+    assert ann.y == pytest.approx(drawn) and ann.y < products.loc[0, "cr_raw"]
+    assert ann.x == pytest.approx(np.log10(products.loc[0, "views"]))
+    assert ann.ay > 0  # top third: the box hangs below the bubble
+
+
+def test_scatter_notes_skip_undrawn_points_and_keep_their_numbers():
+    products = _products()
+    notes = NotesResult([
+        ChartNote("Z9", "highlight", "Not a bubble", "Skipped.", 1),
+        ChartNote("X1", "caution", "Most purchases forgone", "Retire it.", 2),
+    ], source="rule")
+    fig = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, notes=notes)
+    (ann,) = _note_ann(fig)
+    assert ann.text == "<b>2</b> <b>!</b> Most purchases forgone"
+    assert ann.bordercolor == config.PALETTE["coral"] and ann.font.color == config.PALETTE["ink"]
+    unnumbered = [ChartNote("Z9", "highlight", "a", "b"), ChartNote("X1", "caution", "c", "d")]
+    (ann,) = _note_ann(charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, notes=unnumbered))
+    assert ann.text.startswith("<b>2</b>")  # its place in the list
+
+
+def test_note_text_is_escaped():
+    notes = [ChartNote("W1", "highlight", "<b>Tee</b> & Co", "Bold <i>claim</i> & more")]
+    (ann,) = _note_ann(charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP, notes=notes))
+    assert ann.text == "<b>1</b> &lt;b&gt;Tee&lt;/b&gt; &amp; Co"
+    assert ann.hovertext == "Bold &lt;i&gt;claim&lt;/i&gt; &amp; more"

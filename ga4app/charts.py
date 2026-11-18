@@ -26,7 +26,7 @@ from plotly.subplots import make_subplots
 
 from . import config
 from .config import Period
-from .types import Thresholds
+from .types import ChartNote, NotesResult, Thresholds
 
 __all__ = [
     "FONT_FAMILY",
@@ -86,6 +86,13 @@ LOW_VOLUME_MIN_VIEWS = 30  # tablet heatmap cells with fewer views show "–" in
 ITEM_GAP_COLOR = config.PALETTE["other"]
 QUADRANT_TINT_OPACITY = 0.07
 RR_CLIP = (0.05, 20.0)
+# Chart notes (ga4app.annotate): numbered callouts drawn by _draw_notes.
+CORAL = config.PALETTE["coral"]  # border of caution notes only (never text)
+NOTE_DX = 40  # px from the point to the note box, toward the plot's interior
+NOTE_DY = 30
+NOTE_BAR_DY = 40  # bar notes sit this far above the bar top, clear of its lift label
+BAR_HEADROOM = 1.18  # y range top / highest whisker on period_bars...
+NOTE_BAR_HEADROOM = 1.35  # ... and with notes, so the boxes stay inside the plot
 
 _SEQ_NAVY = [[0.0, config.PALETTE["lavender"]], [0.35, "#9AA6D9"], [0.7, "#6270BD"], [1.0, config.PALETTE["navy"]]]
 _DIVERGING_SCALE = [[0.0, config.DIVERGING[0]], [0.5, config.DIVERGING[1]], [1.0, config.DIVERGING[2]]]
@@ -366,6 +373,48 @@ def _no_grid(fig: go.Figure) -> None:
     fig.update_yaxes(showgrid=False, showline=False, ticks="")
 
 
+# --------------------------------------------------------------------------- chart notes
+
+
+def _note_list(notes: Any) -> tuple[list[ChartNote], str]:
+    """(notes, source) from a ``NotesResult``, or from a plain sequence of ``ChartNote`` (drawn as
+    rule-based). None or no notes gives ``([], "")``, and the figure is left unchanged."""
+    if notes is None:
+        return [], ""
+    items = notes.notes if isinstance(notes, NotesResult) else notes
+    source = notes.source if isinstance(notes, NotesResult) else "rule"
+    return [x for x in (items or ()) if isinstance(x, ChartNote)], str(source)
+
+
+def _note_number(note: ChartNote, k: int) -> int:
+    """The number shown for ``note``: its own ``n``, else its 1-based place in the list."""
+    return note.n if note.n > 0 else k + 1
+
+
+def _note_badge(note: ChartNote, k: int) -> str:
+    """``<b>2</b>``, or ``<b>2</b> <b>!</b>`` for a caution (coral is never used for text)."""
+    return f"<b>{_note_number(note, k)}</b>" + (" <b>!</b>" if note.kind == "caution" else "")
+
+
+def _note_box(note: ChartNote) -> dict[str, Any]:
+    """Box style shared by every note: white box, ink border, a coral border for cautions."""
+    caution = note.kind == "caution"
+    return {"bgcolor": WHITE_BOX, "bordercolor": CORAL if caution else INK, "borderwidth": 2 if caution else 1,
+            "borderpad": 3, "font": {"color": INK, "size": 11}}
+
+
+def _draw_notes(fig: go.Figure, placed: Sequence[tuple[ChartNote, int, Mapping[str, Any]]], *, source: str) -> None:
+    """One arrowed annotation per ``(note, k, position)``: ``<b>n</b> label`` in a box, the
+    detail on hover. ``position`` holds data coordinates (``x``, ``y``) and pixel offsets (``ax``,
+    ``ay``); ``k`` is the note's index in the list, for its number. Named ``note:<source>``."""
+    for note, k, pos in placed:
+        fig.add_annotation(
+            name=f"note:{source}", text=f"{_note_badge(note, k)} {_esc(note.label)}", hovertext=_esc(note.detail),
+            xref="x", yref="y", showarrow=True, arrowhead=2, arrowsize=1, arrowwidth=1.2, arrowcolor=INK,
+            align="left", **_note_box(note), **dict(pos),
+        )
+
+
 # --------------------------------------------------------------------------- Feature Picks
 
 
@@ -456,6 +505,7 @@ def quadrant_scatter(
     label_codes: bool = True,
     y_scale: str = "linear",
     height: int = 560,
+    notes: NotesResult | Sequence[ChartNote] | None = None,
 ) -> go.Figure:
     """The Feature Picks bubble scatter: log views (x) vs conversion (y), eligible products only.
 
@@ -467,6 +517,10 @@ def quadrant_scatter(
     ``y_scale="linear"`` clips outliers above the 95th percentile to the top edge (triangle-up).
     ``y_scale="log"`` shows every rate, so the top converters stay readable; rates more than
     ``LOG_Y_FLOOR_RATIO`` times below the average (including zero) sit on the floor (triangle-down).
+
+    ``notes`` (``annotate`` output) point at the bubbles whose code equals their anchor, at the
+    drawn position (a clipped bubble's arrow goes to the edge), with the box pushed toward the
+    plot's interior. Notes whose bubble is not drawn are skipped.
     """
     df = _eligible(products)
     if not df.empty:
@@ -528,8 +582,11 @@ def quadrant_scatter(
             "sizeref": 2.0 * smax / BUBBLE_MAX_PX**2,
             "sizemin": BUBBLE_MIN_PX / 2,  # plotly compares sizemin with the bubble radius
         }
+        # Plotly's area mode: radius = sqrt(size / 2 / sizeref), at least sizemin.
+        radius = np.maximum(np.sqrt(sizes / (2 * marker_size["sizeref"])), marker_size["sizemin"])
     else:
         marker_size = {"size": 12}
+        radius = np.full(n, 6.0)
 
     conf = _txt(df, "confidence", "")
     opacity = np.where(conf == "uncertain", 0.45, 0.9)
@@ -555,7 +612,7 @@ def quadrant_scatter(
         ]
         for i in range(n)
     ]
-    notes = []
+    hover_notes = []
     for i in range(n):
         lines = []
         conf_line = _CONFIDENCE_TEXT.get(str(conf[i]), "")
@@ -569,7 +626,7 @@ def quadrant_scatter(
             lines.append(f"▲ Off the chart: drawn at {_pct(cap)}, actual {_pct(yv[i])}")
         if under[i]:
             lines.append(f"▼ Below the axis: drawn at {_pct(floor, 3)}, actual {_pct(yv[i], 3)}")
-        notes.append("<br>".join(lines) or " ")
+        hover_notes.append("<br>".join(lines) or " ")
 
     fig = go.Figure()
     series = _colour_series(groups, color_map, highlight)
@@ -595,7 +652,7 @@ def quadrant_scatter(
                 textposition="top center",
                 textfont={"color": INK, "size": 11},
                 customdata=[custom[i] for i in idx],
-                hovertext=[notes[i] for i in idx],
+                hovertext=[hover_notes[i] for i in idx],
                 hovertemplate=_SCATTER_HOVER,
             )
         )
@@ -658,6 +715,26 @@ def quadrant_scatter(
             xref="x domain", yref="y domain", x=0.5, y=0, xanchor="center", yanchor="bottom", yshift=6,
             bgcolor=WHITE_BOX, font={"color": MUTED, "size": 11},
         )
+
+    note_list, source = _note_list(notes)
+    if note_list:
+        point_of = {str(c): i for i, c in enumerate(codes) if c}
+        y_lo, y_hi = (math.log10(y_range[0]), math.log10(y_range[1])) if log_y else (y_range[0], y_range[1])
+        placed = []
+        for k, note in enumerate(note_list):
+            i = point_of.get(note.anchor)
+            if i is None:
+                continue
+            # Annotations on a log axis take log10 coordinates.
+            x = math.log10(views[i])
+            yy = math.log10(y_plot[i]) if log_y else float(y_plot[i])
+            right = (x - x_range[0]) / (x_range[1] - x_range[0]) > 0.5
+            top = (yy - y_lo) / (y_hi - y_lo) > 2 / 3
+            placed.append((note, k, {
+                "x": x, "y": yy, "ax": -NOTE_DX if right else NOTE_DX, "ay": NOTE_DY if top else -NOTE_DY,
+                "standoff": float(radius[i]) + 2,
+            }))
+        _draw_notes(fig, placed, source=source)
 
     y_title = "Purchases per product view" + (" (adjusted)" if y == "cr_adj" else "") + (" (log scale)" if log_y else "")
     apply_template(

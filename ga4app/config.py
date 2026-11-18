@@ -234,6 +234,14 @@ LLM_MAX_TOKENS = 4000  # covers reasoning + visible output on OpenRouter
 LLM_REASONING_EFFORT = "low"
 LLM_TIMEOUT_S = 90.0
 
+# AI chart notes (ga4app.annotate): numbered callouts on the Feature Picks scatter, the Holiday
+# Shift bars and the Device Split heatmap.
+NOTES_MAX = 4  # notes per chart
+NOTE_LABEL_MAX = 40  # characters of the short label drawn on the chart
+NOTE_DETAIL_MAX = 200  # characters of the sentence in the list and the hover
+HEATMAP_NOTE_MIN_LOG2 = 0.25  # heatmap cells within +-19% of the product's usual are not offered...
+HEATMAP_ANCHORS_MAX = 30  # ... and at most this many cells are (the strongest first)
+
 
 def is_free_model(model: str) -> bool:
     return model in FREE_MODELS or model.endswith(":free") or model == "openrouter/free"
