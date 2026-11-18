@@ -241,6 +241,7 @@ NOTE_LABEL_MAX = 40  # characters of the short label drawn on the chart
 NOTE_DETAIL_MAX = 200  # characters of the sentence in the list and the hover
 HEATMAP_NOTE_MIN_LOG2 = 0.25  # heatmap cells within +-19% of the product's usual are not offered...
 HEATMAP_ANCHORS_MAX = 30  # ... and at most this many cells are (the strongest first)
+NOTE_ANCHOR_SEP = "·"  # anchor IDs of bars and cells: "Apparel·cyber_week", "G1·mobile"
 
 
 def is_free_model(model: str) -> bool:

@@ -250,6 +250,7 @@ def _all_figures() -> dict[str, go.Figure]:
         "spike": charts.spike_share(_spikes(), "alpha tee", ["cyber_week"]),
         "scatter_log": charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP, y_scale="log"),
         "scatter_notes": charts.quadrant_scatter(_products(), TH, color_map=COLOR_MAP, notes=_scatter_notes()),
+        "bars_notes": charts.period_bars(_period_df(), notes=[ChartNote("Apparel·cyber_week", "caution", "a", "b")]),
         "slots": charts.slot_candidates(_slot_scores(), ["k0", "k14"]),
         "device_bars": charts.device_bars(_device_matrix().query("product_key == 'alpha tee'")),
         "daily_gap": charts.daily_conversion(_season_daily(), PERIODS),
@@ -767,6 +768,8 @@ def test_figures_without_notes_are_unchanged():
     figs = _all_figures()
     for name, expected in BASELINE_ANNOTATIONS.items():
         assert dict(Counter(a.name for a in figs[name].layout.annotations)) == expected, name
+    for empty in (None, [], NotesResult()):
+        assert charts.period_bars(_period_df(), notes=empty).to_json() == figs["period_bars"].to_json()
     products = _products()
     for scale in ("linear", "log"):
         plain = charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, y_scale=scale)
@@ -818,6 +821,26 @@ def test_scatter_notes_skip_undrawn_points_and_keep_their_numbers():
     unnumbered = [ChartNote("Z9", "highlight", "a", "b"), ChartNote("X1", "caution", "c", "d")]
     (ann,) = _note_ann(charts.quadrant_scatter(products, TH, color_map=COLOR_MAP, notes=unnumbered))
     assert ann.text.startswith("<b>2</b>")  # its place in the list
+
+
+def test_bar_note_sits_above_its_bar_and_the_y_range_grows():
+    plain = charts.period_bars(_period_df())
+    notes = NotesResult([ChartNote("Apparel·cyber_week", "highlight", "Biggest rise", "Up 55%.", 1),
+                         ChartNote("Drinkware·baseline", "highlight", "Base bar", "Not offered.", 2),
+                         ChartNote("Bags·cyber_week", "caution", "Not drawn", "No such bar.", 3)], source="ai")
+    fig = charts.period_bars(_period_df(), notes=notes)
+    (ann,) = _note_ann(fig, "ai")[:1]
+    focus = fig.data[1]
+    assert ann.x == pytest.approx(focus.x[0]) and ann.y == pytest.approx(0.0062 * 1.1)  # Apparel's focus whisker top
+    assert ann.ax == 0 and ann.ay == -charts.NOTE_BAR_DY and ann.standoff > 17  # clear of the "+55%" label
+    lift = next(a for a in fig.layout.annotations if a.name == "lift")
+    assert (lift.x, lift.y) == (ann.x, ann.y)
+    assert [a.text for a in _note_ann(fig, "ai")] == ["<b>1</b> Biggest rise"]  # base bars and missing bars: skipped
+    top = 0.0062 * 1.1
+    assert plain.layout.yaxis.range[1] == pytest.approx(top * charts.BAR_HEADROOM)
+    assert fig.layout.yaxis.range[1] == pytest.approx(top * charts.NOTE_BAR_HEADROOM)
+    unplaced = charts.period_bars(_period_df(), notes=[ChartNote("Nope·x", "highlight", "a", "b")])
+    assert unplaced.to_json() == plain.to_json()  # no note drawn: the figure is unchanged
 
 
 def test_note_text_is_escaped():

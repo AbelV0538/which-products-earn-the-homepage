@@ -361,3 +361,92 @@ def test_ai_notes_without_anchors_makes_no_call():
     result = annotate.ai_notes(annotate.AnchorSet(annotate.CHART_SCATTER, {}), api_key=KEY, model="m",
                                transport=llm.fake_transport(lambda body: calls.append(body) or []))
     assert calls == [] and result.notes == [] and result.error is None
+
+
+# --------------------------------------------------------------------------- Holiday Shift
+
+
+def make_groups() -> pd.DataFrame:
+    """A ``period_comparison``-shaped frame: Apparel rises, Bags drops, Drinkware is flat, Office is thin."""
+    spec = {  # group -> (base cr, focus cr, p_value, low_sample)
+        "Apparel": (0.004, 0.0062, 0.0004, False),
+        "Drinkware": (0.005, 0.0052, 0.40, False),
+        "Bags": (0.006, 0.0046, 0.012, False),
+        "Office & Stationery": (0.003, 0.009, np.nan, True),
+    }
+    rows = []
+    for g, (cr_b, cr_f, p, low) in spec.items():
+        for key, cr, is_base in (("baseline", cr_b, True), ("cyber_week", cr_f, False)):
+            rows.append({
+                "group": g, "period": key, "period_label": config.PERIODS[key].label, "views": 50_000,
+                "purchases": int(50_000 * cr), "cr": cr, "ci_low": cr * 0.9, "ci_high": cr * 1.1,
+                "lift": np.nan if is_base else cr_f / cr_b - 1, "p_value": np.nan if is_base else p,
+                "low_sample": low, "lift_vs_rest": np.nan if is_base else 0.1234, "p_value_vs_rest": np.nan if is_base else 0.2,
+                "is_base": is_base,
+            })
+    return pd.DataFrame(rows)
+
+
+def _snapshot_bars(data_dir: Path, base: str = "baseline", focus: str = "cyber_week") -> annotate.AnchorSet:
+    snap = data.load_snapshot(data_dir)
+    groups = metrics.period_comparison(snap.item_daily, snap.product_dim, [config.PERIODS[base], config.PERIODS[focus]],
+                                       Filters(), by="category_group")
+    return annotate.holiday_anchors(groups, filters="all devices · all categories · min 200 views")
+
+
+def test_holiday_anchors_are_the_tested_focus_bars():
+    anchors = annotate.holiday_anchors(make_groups(), filters="all devices")
+    assert anchors.chart == annotate.CHART_BARS
+    assert anchors.ids() == ["Apparel·cyber_week", "Drinkware·cyber_week", "Bags·cyber_week"]  # no base, no low sample
+    a = anchors.by_id["Apparel·cyber_week"]
+    assert a == {"id": "Apparel·cyber_week", "category": "Apparel", "window": "Cyber Week", "conversion_pct": 0.62,
+                 "base_conversion_pct": 0.4, "interval_pct": [0.56, 0.68], "lift_pct": 55.0, "p_value": 0.0004,
+                 "significant": True, "lift_vs_rest_pct": 12.3, "p_value_vs_rest": 0.2}
+    assert anchors.by_id["Drinkware·cyber_week"]["significant"] is False
+    assert anchors.scope == {"base": "Pre-holiday baseline", "focus": "Cyber Week", "base_dates": "Nov 1 – Nov 22",
+                             "focus_dates": "Nov 23 – Nov 30", "filters": "all devices", "significance_level": 0.05}
+    assert annotate.holiday_anchors(None).anchors == [] and annotate.holiday_anchors(pd.DataFrame()).anchors == []
+
+
+def test_rule_based_bar_notes_point_at_the_biggest_rise_and_drop():
+    anchors = annotate.holiday_anchors(make_groups())
+    result = annotate.rule_based_notes(anchors)
+    assert result.dropped == []
+    assert [(n.anchor, n.kind, n.label) for n in result.notes] == [
+        ("Apparel·cyber_week", "highlight", "Biggest rise"), ("Bags·cyber_week", "caution", "Biggest drop")]
+    assert result.notes[0].detail == ("Apparel converts 55% better during Cyber Week (0.4% to 0.62%), "
+                                      "significant at p < 0.05.")
+    assert result.notes[1].detail.startswith("Bags converts 23% worse during Cyber Week")
+
+
+def test_no_significant_shift_means_no_bar_notes():
+    groups = make_groups().assign(p_value=lambda d: np.where(d["is_base"], np.nan, 0.5))
+    anchors = annotate.holiday_anchors(groups)
+    assert anchors.anchors and annotate.rule_based_notes(anchors).notes == []
+    assert anchors.empty == "No significant shift to point out."
+
+
+def test_bar_notes_number_check_reads_the_lift_label():
+    anchors = annotate.holiday_anchors(make_groups())
+    bags = anchors.by_id["Bags·cyber_week"]  # lift -23.3%
+    assert annotate.unmatched_numbers("Bags drops 23% in Cyber Week.", bags, anchors.scope) == []
+    assert annotate.unmatched_numbers("Bags drops 1.4 points.", bags, anchors.scope) == ["1.4"]
+
+
+@pytest.mark.parametrize("base, focus", config.COMPARISONS)
+def test_rule_based_bar_notes_pass_on_the_synthetic_snapshot(synthetic_dir, base, focus):
+    anchors = _snapshot_bars(synthetic_dir, base, focus)
+    result = annotate.rule_based_notes(anchors)
+    assert result.dropped == [] and all(a["id"].endswith(focus) for a in anchors.anchors)
+
+
+def test_synthetic_holiday_notes_find_the_planted_apparel_uplift(synthetic_dir, synthetic_truth):
+    assert synthetic_truth["holiday_uplift"]["Apparel"] > 1
+    notes = annotate.rule_based_notes(_snapshot_bars(synthetic_dir)).notes
+    assert notes[0].anchor == "Apparel·cyber_week" and notes[0].kind == "highlight"
+
+
+@pytest.mark.parametrize("base, focus", config.COMPARISONS)
+def test_rule_based_bar_notes_pass_on_the_real_snapshot(real_data_dir, base, focus):
+    result = annotate.rule_based_notes(_snapshot_bars(real_data_dir, base, focus))
+    assert result.notes and result.dropped == []

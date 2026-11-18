@@ -122,3 +122,37 @@ def test_holiday_shift_short_windows_real(monkeypatch, real_data_dir, focus):
     _ok(at)
     assert _charts(at) == 3
 
+
+
+def _specs(at: AppTest) -> list[dict]:
+    return [json.loads(c.proto.spec) for c in at.get("plotly_chart")]
+
+
+def _notes_in(spec: dict) -> list[str]:
+    return [a["name"] for a in spec["layout"].get("annotations", []) if str(a.get("name", "")).startswith("note:")]
+
+
+def test_holiday_shift_chart_notes(monkeypatch, synthetic_dir):
+    at = _page(monkeypatch, synthetic_dir, HOLIDAY)
+    assert at.toggle(key="hs_notes_on").value is False
+    assert not any(_notes_in(s) for s in _specs(at))
+    at.toggle(key="hs_notes_on").set_value(True).run()
+    _ok(at)
+    bars = next(s for s in _specs(at) if any(t.get("type") == "bar" for t in s["data"]))
+    assert _notes_in(bars) and set(_notes_in(bars)) == {"note:rule"}
+    assert any(m.value.startswith("**1** Biggest rise: Apparel converts") for m in at.markdown)
+    # The comparison is a data control: new anchors, still rule-based notes, no errors.
+    at.selectbox(key="hs_compare").set_value(("january_4wk", "december")).run()
+    _ok(at)
+    assert _charts(at) == 3
+
+
+def test_holiday_shift_ai_notes_fake(monkeypatch, synthetic_dir):
+    monkeypatch.setenv(config.LLM_FAKE_ENV, "1")
+    at = _page(monkeypatch, synthetic_dir, HOLIDAY)
+    at.secrets["OPENROUTER_API_KEY"] = "test"
+    at.button(key="hs_notes_ai").click().run()
+    _ok(at)
+    bars = next(s for s in _specs(at) if any(t.get("type") == "bar" for t in s["data"]))
+    assert _notes_in(bars) == ["note:ai", "note:ai"]
+    assert at.session_state["notes_cache"]

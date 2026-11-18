@@ -35,12 +35,14 @@ NOTES_PROMPT_VERSION = "notes-2026-11-17.1"
 
 NOTE_KINDS = ("highlight", "caution")
 COUNTING_WORDS = frozenset({1, 2, 3, 4, 5})  # "top 3" needs no source number
-SEP = "·"  # anchor ID separator: "Apparel·cyber_week", "G1·mobile"
+SEP = config.NOTE_ANCHOR_SEP  # anchor IDs of bars and cells: "Apparel·cyber_week", "G1·mobile"
 
 CHART_SCATTER = "feature_picks_scatter"
+CHART_BARS = "holiday_shift_bars"
 
 QUESTIONS = {
     CHART_SCATTER: "Which products earn a holiday homepage slot, and which waste one?",
+    CHART_BARS: "Which categories convert better or worse in the holiday window than in the base window?",
 }
 
 SCATTER_ANCHORS_MAX = 15  # the verdict payload's coded products: 5 per actionable quadrant
@@ -86,9 +88,9 @@ purchases per 1,000 extra views; forgone_purchases = purchases lost against an a
 - views_undercount: checkout events reach half its product views, so its views look \
 under-counted and its conversion overstated. cannibal_pair: on its spike days a related product \
 sold less, so featuring both at once may move sales rather than add them.
-- Holiday bars: conversion_pct in the focus window against base_conversion_pct in the base \
-window; lift_pct is the relative change, significant means p_value < scope.significance_level; \
-lift_vs_rest_pct is the change beyond the rest of the store.
+- Holiday bars: conversion_pct in the focus window (interval_pct is its 95% interval) against \
+base_conversion_pct in the base window; lift_pct is the relative change, significant means \
+p_value < scope.significance_level; lift_vs_rest_pct is the change beyond the rest of the store.
 - Device cells: x_usual is the product's conversion on that device relative to its usual rate \
 across devices (1 = as usual); lean is Mobile-first, Desktop-first, Both or Not enough data.
 
@@ -167,6 +169,69 @@ def scatter_anchors(payload: Mapping[str, Any], products: pd.DataFrame,
     return AnchorSet(CHART_SCATTER, scope, anchors,
                      empty="No product has a code in this scope, so there is nothing to point out.",
                      keys={a["id"]: keys[a["id"]] for a in anchors})
+
+
+# --------------------------------------------------------------------------- anchors: Holiday Shift
+
+
+def _flag_mask(df: pd.DataFrame, col: str) -> pd.Series:
+    if col not in df.columns:
+        return pd.Series(False, index=df.index)
+    return df[col].astype("boolean").fillna(False).astype(bool)
+
+
+def bar_anchor(group: str, period: str) -> str:
+    """The anchor ID of one Holiday Shift bar: ``"Apparel·cyber_week"``."""
+    return f"{group}{SEP}{period}"
+
+
+def holiday_anchors(groups: pd.DataFrame | None, *, filters: str = "") -> AnchorSet:
+    """Anchors for the Holiday Shift bars (``metrics.period_comparison`` by category, first window
+    = base). One per focus-window bar that was tested: base-window bars and ``low_sample`` bars
+    (too few purchases to test) are never offered. ``filters`` is the sidebar scope as text."""
+    empty = AnchorSet(CHART_BARS, {}, empty="No significant shift to point out.")
+    if not isinstance(groups, pd.DataFrame) or groups.empty or not {"group", "period", "cr"} <= set(groups.columns):
+        return empty
+    df = groups.reset_index(drop=True)
+    base_mask = _flag_mask(df, "is_base") if "is_base" in df.columns else df["period"] == df["period"].iloc[0]
+    base = df[base_mask]
+    base_cr = dict(zip(base["group"].map(narrative._text), base["cr"]))
+    base_label = narrative._text(base["period_label"].iloc[0]) if len(base) and "period_label" in df else ""
+    base_key = narrative._text(base["period"].iloc[0]) if len(base) else ""
+    focus = df[~base_mask & ~_flag_mask(df, "low_sample")]
+    anchors = []
+    for r in focus.to_dict("records"):
+        group, period = narrative._text(r.get("group")), narrative._text(r.get("period"))
+        p_value = narrative._num(r.get("p_value"))
+        lift = narrative._num(r.get("lift"))
+        if not group or p_value is None or lift is None:
+            continue
+        anchor: dict[str, Any] = {
+            "id": bar_anchor(group, period),
+            "category": group,
+            "window": narrative._text(r.get("period_label")) or period,
+            "conversion_pct": narrative._pct(r.get("cr")),
+            "base_conversion_pct": narrative._pct(base_cr.get(group)),
+            "interval_pct": [narrative._pct(r.get("ci_low")), narrative._pct(r.get("ci_high"))],
+            "lift_pct": round(100.0 * lift, 1),
+            "p_value": narrative._round(p_value, 4),
+            "significant": bool(p_value < narrative.SHIFT_ALPHA),
+        }
+        rest, p_rest = narrative._num(r.get("lift_vs_rest")), narrative._num(r.get("p_value_vs_rest"))
+        if rest is not None:
+            anchor["lift_vs_rest_pct"] = round(100.0 * rest, 1)
+        if p_rest is not None:
+            anchor["p_value_vs_rest"] = narrative._round(p_rest, 4)
+        anchors.append(anchor)
+    focus_key = narrative._text(focus["period"].iloc[0]) if len(focus) else ""
+    scope: dict[str, Any] = {"base": base_label, "focus": anchors[0]["window"] if anchors else ""}
+    for key, name in ((base_key, "base_dates"), (focus_key, "focus_dates")):
+        if key in config.PERIODS:
+            scope[name] = config.PERIODS[key].short()
+    if filters:
+        scope["filters"] = filters
+    scope["significance_level"] = narrative.SHIFT_ALPHA
+    return AnchorSet(CHART_BARS, scope, anchors, empty=empty.empty)
 
 
 # --------------------------------------------------------------------------- the model call
@@ -506,8 +571,28 @@ def _scatter_drafts(anchors: AnchorSet) -> list[dict[str, str]]:
     return drafts
 
 
+def _bar_drafts(anchors: AnchorSet) -> list[dict[str, str]]:
+    """The largest significant rise (highlight) and the largest significant drop (caution)."""
+    sig = [a for a in anchors.anchors if a.get("significant") and a.get("lift_pct") is not None]
+    rises = sorted((a for a in sig if a["lift_pct"] > 0), key=lambda a: (-a["lift_pct"], a["id"]))
+    drops = sorted((a for a in sig if a["lift_pct"] < 0), key=lambda a: (a["lift_pct"], a["id"]))
+    alpha = _fmt(anchors.scope.get("significance_level", narrative.SHIFT_ALPHA))
+    drafts = []
+    for pool, kind, label, word in ((rises, "highlight", "Biggest rise", "better"), (drops, "caution", "Biggest drop", "worse")):
+        if pool:
+            a = pool[0]
+            drafts.append({
+                "anchor": str(a["id"]), "kind": kind, "label": label,
+                # The lift rounded like the bar's own label ("+108%"); the check accepts it as a rounding.
+                "detail": f"{a['category']} converts {math.floor(abs(a['lift_pct']) + 0.5)}% {word} during {a['window']} "
+                          f"({_fmt(a['base_conversion_pct'])}% to {_fmt(a['conversion_pct'])}%), significant at p < {alpha}.",
+            })
+    return drafts
+
+
 _DRAFTS = {
     CHART_SCATTER: _scatter_drafts,
+    CHART_BARS: _bar_drafts,
 }
 
 

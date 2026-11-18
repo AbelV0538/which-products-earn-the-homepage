@@ -6,7 +6,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from ga4app import charts, config, data, metrics, state, ui
+from ga4app import annotate, charts, config, data, metrics, state, ui
 from ga4app.types import Filters
 
 P = "hs_"
@@ -130,11 +130,16 @@ else:
     table = groups[cols].copy()
     for c in ("cr", "ci_low", "ci_high", "lift", "lift_vs_rest"):
         table[c] = 100 * table[c].astype(float)
+    note_anchors = annotate.holiday_anchors(groups, filters=f.label().split(" · ", 1)[1])
+    notes = ui.chart_notes_controls(note_anchors, key_prefix=P)
     ui.chart_with_table(
-        _fade_low_sample(charts.period_bars(groups), groups), table.round(3), key=f"{P}bars", file_name="holiday_shift_categories.csv",
+        _fade_low_sample(charts.period_bars(groups, notes=notes), groups), table.round(3), key=f"{P}bars",
+        file_name="holiday_shift_categories.csv",
         caption="Bars are conversion in each window; whiskers are 95% intervals. A % label marks a change that is "
                 "statistically significant (p < 0.05). Faint bars have fewer than 10 purchases.",
+        alt_extra=ui.notes_alt(notes),
     )
+    ui.chart_notes_list(notes, note_anchors, key_prefix=P)
     focus_rows = groups[~groups["is_base"].astype(bool)]
     up, down, flat = [], [], []
     for r in focus_rows.itertuples():

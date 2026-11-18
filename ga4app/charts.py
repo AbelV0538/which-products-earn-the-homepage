@@ -796,12 +796,15 @@ def product_timeline(daily_one: pd.DataFrame | None, periods: Any = None, *, hei
 
 
 def period_bars(
-    period_df: pd.DataFrame | None, *, colors: Sequence[str] = config.PERIOD_COLORS, height: int = 420
+    period_df: pd.DataFrame | None, *, colors: Sequence[str] = config.PERIOD_COLORS, height: int = 420,
+    notes: NotesResult | Sequence[ChartNote] | None = None,
 ) -> go.Figure:
     """Grouped bars of conversion per group (x) and window, with 95% intervals.
 
     Takes ``metrics.period_comparison`` output. Bars sit at explicit numeric positions so the
-    lift labels (only where ``p_value < 0.05``) land exactly above their bar.
+    lift labels (only where ``p_value < 0.05``) land exactly above their bar. ``notes`` anchored
+    ``"group·period"`` (``annotate.bar_anchor``) sit above that bar, clear of its lift label; the y
+    range grows to make room for them.
     """
     if not _has(period_df) or "period" not in period_df.columns:
         return empty_figure("No window comparison for this scope.", height=height)
@@ -825,6 +828,7 @@ def period_bars(
     width = slot * 0.84  # leaves a small surface gap between neighbouring bars
     fig = go.Figure()
     y_top = 0.0
+    bar_at: dict[str, tuple[float, float, bool]] = {}  # anchor -> (x, top, has a lift label)
     for i, (p, colour) in enumerate(zip(periods, _ordinal(n, colors))):
         sub = df[df["_p"] == p].drop_duplicates("_g").set_index("_g").reindex(groups)
         cr, lo, hi = _num(sub, "cr"), _num(sub, "ci_low"), _num(sub, "ci_high")
@@ -865,17 +869,29 @@ def period_bars(
         if p == base:
             continue
         for j in range(len(groups)):
-            if _finite(pval[j]) and pval[j] < 0.05 and _finite(lift[j]) and _finite(tops[j]):
+            labelled = _finite(pval[j]) and pval[j] < 0.05 and _finite(lift[j]) and _finite(tops[j])
+            if _finite(tops[j]):
+                bar_at[f"{groups[j]}{config.NOTE_ANCHOR_SEP}{p}"] = (float(x[j]), float(tops[j]), labelled)
+            if labelled:
                 fig.add_annotation(
                     name="lift", text=f"<b>{lift[j]:+.0%}</b>", x=x[j], y=tops[j], xref="x", yref="y",
                     yanchor="bottom", yshift=3, font={"color": INK, "size": 11},
                 )
+    note_list, source = _note_list(notes)
+    placed = []
+    for k, note in enumerate(note_list):
+        if note.anchor in bar_at:
+            bx, top, labelled = bar_at[note.anchor]
+            # The arrow stops just above the lift label (about 17 px tall), or near a bare bar's top.
+            placed.append((note, k, {"x": bx, "y": top, "ax": 0, "ay": -NOTE_BAR_DY, "standoff": 19 if labelled else 3}))
+    _draw_notes(fig, placed, source=source)
     apply_template(fig, height=height, barmode="overlay", barcornerradius=4, showlegend=n >= 2, hovermode="closest")
     fig.update_xaxes(
         tickvals=list(range(len(groups))), ticktext=[_esc(g) for g in groups], range=[-0.5, len(groups) - 0.5],
         showgrid=False, ticks="",
     )
-    fig.update_yaxes(tickformat=".2~%", title_text="Purchases per product view", range=[0, max(y_top, 1e-6) * 1.18])
+    headroom = NOTE_BAR_HEADROOM if placed else BAR_HEADROOM
+    fig.update_yaxes(tickformat=".2~%", title_text="Purchases per product view", range=[0, max(y_top, 1e-6) * headroom])
     return fig
 
 
