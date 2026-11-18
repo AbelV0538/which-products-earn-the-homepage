@@ -930,7 +930,7 @@ Built from [`PLAN_ai_chart_notes.md`](PLAN_ai_chart_notes.md). Numbered notes on
 - `ui.chart_notes_list(result, anchors, *, key_prefix, inspect=False)` under it: the source caption ("AI notes · model · every number checked against the data" or "Rule-based notes from the numbers on this chart"), a warning with the dropped notes or the failure, then "**n** label: detail". Feature Picks adds an Inspect button per product note.
 - `ui.chart_with_table(..., alt_extra=ui.notes_alt(notes))` puts the note sentences into the chart's alt text only.
 
-**Live run (plan step 5), 2026-11-18.** Real snapshot; six anchor sets per model (scatter: full season and Cyber Week; heatmap: the same two scopes, Winners + Hidden gems, top 20; bars: baseline vs Cyber Week and vs December), each called exactly as `ai_notes` does, plus one verdict per model. Prompt versions: v1 = `notes-2026-11-17.1`, v2 = `notes-2026-11-18.1`, v3 = `notes-2026-11-18.2`.
+**Live run (plan step 5), 2026-11-17.** Real snapshot; six anchor sets per model (scatter: full season and Cyber Week; heatmap: the same two scopes, Winners + Hidden gems, top 20; bars: baseline vs Cyber Week and vs December), each called exactly as `ai_notes` does, plus one verdict per model. Prompt versions: v1 = `notes-2026-11-17.1`, v2 = `notes-2026-11-18.1`, v3 = `notes-2026-11-18.2` (the later IDs carry the UTC date; the run was on the evening of Nov 17, US Eastern).
 
 | Model | Prompt | Calls | Answered | Notes kept / dropped | Latency | Cost per call |
 |---|---|---|---|---|---|---|

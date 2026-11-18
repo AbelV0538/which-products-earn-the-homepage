@@ -4,7 +4,7 @@
 
 *ITCS 5122 Visual Analytics · Team 9 · Account D · Pitch 1. Client: Head of Merchandising.*
 
-> **Status:** working app with 7 pages, running on real GA4 data pulled live from BigQuery plus real Google Trends data. There are 465 automated tests, all passing, run on every push by GitHub Actions. See [What is still missing](#what-is-still-missing).
+> **Status:** working app with 7 pages, running on real GA4 data pulled live from BigQuery plus real Google Trends data. An optional AI verdict and [AI chart notes](#chart-notes) have both been run live against OpenRouter. There are 465 automated tests, all passing, run on every push by GitHub Actions. See [What is still missing](#what-is-still-missing).
 
 ![Feature Picks page](docs/screenshots/feature_picks.png)
 
@@ -20,10 +20,12 @@ streamlit run app.py
 
 The app runs entirely from the small snapshot files committed in `data/` (a few MB). It does **not** need BigQuery, the 450 MB CSV or an API key.
 
-**Optional AI verdict.** The app turns the quadrant chart into a meeting-ready recommendation via [OpenRouter](https://openrouter.ai):
+**Or open it in GitHub Codespaces.** The repo has a dev container (`.devcontainer/devcontainer.json`, Python 3.11). On GitHub choose **Code → Codespaces → Create codespace**: it installs `requirements.txt`, starts `streamlit run app.py` and opens the app on port 8501.
+
+**Optional AI verdict and chart notes.** With an [OpenRouter](https://openrouter.ai) key, the app turns the quadrant chart into a meeting-ready recommendation and writes [notes on three charts](#chart-notes):
 
 1. Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`.
-2. Set `OPENROUTER_API_KEY = "sk-or-v1-..."`. You can also paste a key into the sidebar's **AI narrator** box; it is kept for that session only.
+2. Set `OPENROUTER_API_KEY = "sk-or-v1-..."`. You can also paste a key into the sidebar's **AI narrator** box (kept for that session only), or, in Codespaces, add `OPENROUTER_API_KEY` as a Codespaces secret: the app also reads the environment variable.
 3. Choose a model in the sidebar:
 
    | Model | Notes |
@@ -32,10 +34,10 @@ The app runs entirely from the small snapshot files committed in `data/` (a few 
    | `anthropic/claude-sonnet-5.5` | |
    | `anthropic/claude-haiku-5.5` | About $0.001 per verdict or chart's notes (measured), 4–7 s |
    | `anthropic/claude-fable-5.1` | |
-   | `openrouter/free`, `google/gemma-4-31b-it:free` | Free; limited to 50 requests/day without credits. Slower (8–60 s); reasoning models sometimes use up their token budget, and Gemma's shared pool was rate-limited all day on 2026-11-18 |
+   | `openrouter/free`, `google/gemma-4-31b-it:free` | Free; limited to 50 requests/day without credits. Slower (8–60 s); reasoning models sometimes use up their token budget, and Gemma's shared pool was rate-limited throughout the test on 2026-11-17 |
    | A custom model id | |
 
-Without a key, the app shows a deterministic rule-based verdict built from the same numbers. `.streamlit/secrets.toml` is git-ignored: never commit a key. The same key and model also write the [chart notes](#chart-notes).
+Without a key, the app shows a deterministic rule-based verdict and rule-based chart notes, built from the same numbers. `.streamlit/secrets.toml` is git-ignored: never commit a key.
 
 ## What the app answers
 
@@ -236,17 +238,21 @@ sql/                   12 BigQuery queries (proof, profiling, exports)
 scripts/               the pipeline above
 data/                  committed snapshots; data/raw/ = raw exports + Trends cache
 tests/                 pytest + AppTest
-docs/DESIGN.md         full design: contracts, SQL, formulas, page specs
+docs/DESIGN.md         full design: contracts, SQL, formulas, page specs (7b: chart notes and the live run)
+docs/PLAN_ai_chart_notes.md   the build plan for the chart notes, with what changed while building
+docs/screenshots/      the README images
+.devcontainer/         GitHub Codespaces setup (installs requirements.txt, starts the app)
+.github/workflows/     CI: snapshot checks + the test suite on every push
 ```
 
 ## What is still missing
 
 | Area | Status |
 |---|---|
-| Live AI verdict | ✅ Run on 2026-11-18 with Claude Haiku 5.5 (about $0.001, 6.5 s) and free models (8–15 s); no unknown product codes. ⏳ **Not yet run with the default Claude Opus 5.5**: the key used had too little credit for a 4,000-token request. |
-| Live AI chart notes | ✅ Run on 2026-11-18 on all three charts and in the running app; the prompt was tuned twice from what it showed. ⏳ **Claude Opus 5.5 has one data point** (the Feature Picks scatter: 4 of 4 notes kept, $0.021, 5.2 s) for the same credit reason; the rest of the paid figures are from Haiku 5.5. See [DESIGN.md 7b](docs/DESIGN.md). |
+| Live AI verdict | ✅ Run on 2026-11-17 with Claude Haiku 5.5 (about $0.001, 6.5 s) and free models (8–15 s); no unknown product codes. ⏳ **Not yet run with the default Claude Opus 5.5**: the key used had too little credit for a 4,000-token request. |
+| Live AI chart notes | ✅ Run on 2026-11-17 on all three charts and in the running app; the prompt was tuned twice from what it showed. ⏳ **Claude Opus 5.5 has one data point** (the Feature Picks scatter: 4 of 4 notes kept, $0.021, 5.2 s) for the same credit reason; the rest of the paid figures are from Haiku 5.5. See [DESIGN.md 7b](docs/DESIGN.md). |
 | "Re-run proof query live" button (Data & Method) | ⏳ Only works on a machine with cached BigQuery credentials. It is disabled elsewhere and has not been clicked in the running app. |
-| Deployment | ⏳ Not deployed. The app is ready for Streamlit Community Cloud, since it runs from the committed snapshots, and the key can go in the Cloud app's secrets. |
+| Deployment | ⏳ Not deployed. The app is ready for Streamlit Community Cloud, since it runs from the committed snapshots, and the key can go in the Cloud app's secrets. Meanwhile anyone with access to the repo can run it in GitHub Codespaces (see [Quick start](#quick-start)). |
 | `TEAM9.pdf` (original pitch deck) | Intentionally not committed. |
 
 Shareable filter URLs, the inspector's per-device bars and a Slot Plan chart, listed here earlier, are now done.
