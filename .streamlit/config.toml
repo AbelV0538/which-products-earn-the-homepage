@@ -16,6 +16,9 @@ headingFontWeights = [800, 700, 700, 600, 600, 600]
 baseFontSize = 15
 metricValueFontSize = "1.875rem"
 metricValueFontWeight = 700
+# Lavender table header row with navy text.
+dataframeHeaderBackgroundColor = "#ECEEF8"
+dataframeHeaderTextColor = "#2F3B7D"
 
 # Navy sidebar, with the brand's pale yellow for selected options, toggles and sliders (8:1 on navy; coral would
 # be only 3.4:1). The full colour set is given so text, inputs and borders stay readable on the dark background.

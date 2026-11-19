@@ -23,6 +23,8 @@ QUESTIONS = {
     "Phase 2a": "Does featuring one product steal sales from its neighbours?",
     "Phase 2b": "Which categories are trending on Google ahead of our own traffic?",
 }
+# Badge colour per question in the page headers: red = retire waste, green = promote, the rest just tell them apart.
+QUESTION_BADGES = {"Q1": "red", "Q2": "green", "Q3": "violet", "Q4": "blue", "Phase 2a": "orange", "Phase 2b": "yellow"}
 COST_NOTE = "About \\$0.02–0.05 per verdict with Claude Opus 5.5; free models are rate-limited."
 NOTES_COST_NOTE = ("About \\$0.02 per chart with Claude Opus 5.5, one call; the notes are kept when only the "
                    "display changes.")
@@ -41,21 +43,29 @@ def pct(x: Any, digits: int = 2) -> str:
     return "–" if math.isnan(v) else f"{100 * v:.{digits}f}%"
 
 
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_")
+
+
 def header(title: str, subtitle: str, questions: Sequence[str] = ()) -> None:
-    """Page title, a plain-language subtitle and the pitch question(s) the page answers."""
-    st.title(title)
-    st.caption(esc(subtitle))
-    if questions:
-        lines = [f"**{q}** · {QUESTIONS.get(q, q)}" for q in questions]
-        st.markdown("Answers " + " &nbsp; ".join(lines))
+    """Page title, a plain-language subtitle and the pitch question(s) the page answers, on the
+    gradient panel that assets/app.css draws for the ``page_hero`` key."""
+    with st.container(key="page_hero"):
+        st.title(title)
+        st.caption(esc(subtitle))
+        if questions:
+            lines = [f":{QUESTION_BADGES.get(q, 'primary')}-badge[{q}] {QUESTIONS.get(q, q)}" for q in questions]
+            st.markdown("Answers &nbsp;" + " &nbsp; ".join(lines))
 
 
 def kpi_row(items: Sequence[Mapping[str, Any]]) -> None:
     """One row of st.metric tiles. Each item: label, value, optional delta, delta_color,
-    delta_arrow ("off" for a delta that is context, not a change) and help."""
+    delta_arrow ("off" for a delta that is context, not a change) and help. The row's key
+    (``kpis_`` + its first label) gives the tiles their accent and transitions in assets/app.css."""
     if not items:
         return
-    for col, item in zip(st.columns(len(items)), items):
+    row = st.container(key=f"kpis_{_slug(items[0]['label'])}")
+    for col, item in zip(row.columns(len(items)), items):
         col.metric(
             item["label"], item["value"], delta=item.get("delta"), delta_color=item.get("delta_color", "normal"),
             delta_arrow=item.get("delta_arrow", "auto"), help=item.get("help"), border=True,
@@ -178,7 +188,7 @@ def verdict_block(payload: dict, *, key_prefix: str, title: str = "Verdict") -> 
     ck = narrative.cache_key(payload, model or "-")
     hit = cache.get(ck) or _shared_ai_cache().get(ck)
     rule = narrative.rule_based_verdict(payload)
-    box = st.container(border=True)
+    box = st.container(border=True, key=f"verdict_{key_prefix}")  # tinted card in assets/app.css
     head = box.container(horizontal=True, vertical_alignment="center", gap="small")
     head.subheader(title, anchor=False, icon=":material/gavel:", width="content")
     source = head.empty()

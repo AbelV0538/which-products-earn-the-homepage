@@ -114,7 +114,8 @@ def _range(row) -> str:
 
 def _card(row: pd.Series, campaign: str, picked: set[str]) -> None:
     key = str(row["product_key"])
-    with st.container(border=True):
+    # The key gives the card its campaign colour in assets/app.css.
+    with st.container(border=True, key=f"slot_card_{config.CAMPAIGNS[campaign]}_{int(row['slot'])}"):
         st.markdown(f"**{int(row['slot'])}. {ui.esc(row['item_name'])}**")
         st.caption(ui.esc(row["category_group"]))
         vs_txt = _multiple(row["vs_avg"], row["window_avg"])
@@ -151,7 +152,7 @@ def _card(row: pd.Series, campaign: str, picked: set[str]) -> None:
 cols = st.columns(len(config.CAMPAIGNS))
 for col, campaign in zip(cols, config.CAMPAIGNS):
     period = config.PERIODS[config.CAMPAIGNS[campaign]]
-    with col:
+    with col, st.container(key=f"campaign_{config.CAMPAIGNS[campaign]}"):  # campaign colour in assets/app.css
         st.subheader(campaign)
         st.caption(f"{period.short()} · {period.days} days · scored on that window")
         rows = plan[plan["campaign"] == campaign]

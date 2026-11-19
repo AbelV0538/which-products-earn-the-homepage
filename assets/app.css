@@ -1,8 +1,262 @@
-/* Top navigation on presentation-sized screens. Written against Streamlit 1.66's markup (data-testid
-   selectors only); re-check after upgrading Streamlit. Streamlit folds page links that do not fit into an
-   "N more" menu and marks them aria-hidden, so these rules keep every link in the bar instead. */
+/* The app's only custom CSS, loaded with st.html in app.py. Written against Streamlit 1.66 (pinned in
+   requirements.txt); re-check after upgrading. Our own elements are styled through their key= classes
+   (.st-key-...); Streamlit's are reached through data-testid attributes only, never generated class names.
+   The charts are not styled here: they paint their own white surface. Colours are the palette in
+   ga4app/config.py: navy #2F3B7D, periwinkle #6270BD / #9AA6D9, lavender #ECEEF8, coral #F7646A,
+   pale yellow #F8E79A, plus a deeper gold #E9B949 for thin accents (pale yellow is too faint as a line). */
 
-/* 1. Below 1440px wide, the seven links with icons no longer fit beside the sidebar (measured: they need
+:root {
+  --ga-navy: #2F3B7D;
+  --ga-indigo: #4A57B0;
+  --ga-periwinkle: #6270BD;
+  --ga-periwinkle-light: #9AA6D9;
+  --ga-lavender: #ECEEF8;
+  --ga-coral: #F7646A;
+  --ga-yellow: #F8E79A;
+  --ga-gold: #E9B949;
+  --ga-brand: linear-gradient(90deg, #2F3B7D 0%, #6270BD 35%, #F7646A 70%, #F8E79A 100%);
+  --ga-shadow: 0 10px 24px -10px rgba(47, 59, 125, 0.45);
+}
+
+@keyframes ga-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------------ frame */
+
+/* A thin brand-gradient strip across the top of every page. */
+[data-testid="stApp"]::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--ga-brand);
+  z-index: 1000002;
+  pointer-events: none;
+}
+
+/* The navy sidebar deepens toward indigo at the bottom. */
+section[data-testid="stSidebar"] {
+  background-image: linear-gradient(180deg, #2F3B7D 0%, #2C3676 55%, #382F79 100%);
+}
+
+/* ------------------------------------------------------------------ page header (ui.header) */
+
+div.st-key-page_hero[data-testid="stVerticalBlock"] {
+  padding: 1.1rem 1.75rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(98, 112, 189, 0.18);
+  background:
+    radial-gradient(120% 150% at 100% 0%, rgba(247, 100, 106, 0.16) 0%, transparent 55%),
+    radial-gradient(90% 130% at 85% 115%, rgba(248, 231, 154, 0.6) 0%, transparent 60%),
+    linear-gradient(115deg, #ECEEF8 0%, #F3F1FB 50%, #FFF9EC 100%);
+}
+
+/* Navy-to-indigo gradient on the title text. Its lightest end, #6270BD, is 3.97:1 on the lavender panel:
+   above the 3:1 WCAG asks of large text (the title is 2.5rem, weight 800). */
+.st-key-page_hero h1 [data-heading-text] {
+  background: linear-gradient(90deg, #2F3B7D 0%, #4A57B0 60%, #6270BD 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* The faded caption grey drops below 4.5:1 on the tinted panel, so it is darkened there. */
+.st-key-page_hero [data-testid="stCaptionContainer"] {
+  color: #4B5063;
+}
+
+/* ------------------------------------------------------------------ section headings */
+
+/* A short navy-to-coral bar under each section heading; it stretches on hover. */
+[data-testid="stMain"] [data-testid="stHeading"]:has(h2, h3)::after {
+  content: "";
+  display: block;
+  width: 2.75rem;
+  height: 4px;
+  margin-top: 0.3rem;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--ga-navy), var(--ga-coral));
+  transition: width 0.35s ease;
+}
+
+[data-testid="stMain"] [data-testid="stHeading"]:has(h2, h3):hover::after {
+  width: 5rem;
+}
+
+/* Not inside the verdict card, whose heading sits in a row with its badge. */
+[class*="st-key-verdict_"] [data-testid="stHeading"]::after {
+  content: none !important;
+}
+
+/* ------------------------------------------------------------------ KPI tiles (ui.kpi_row) */
+
+[class*="st-key-kpis_"] [data-testid="stMetric"] {
+  position: relative;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F6F7FC 100%);
+  border-color: rgba(98, 112, 189, 0.28);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+[class*="st-key-kpis_"] [data-testid="stMetric"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--ga-brand);
+}
+
+[class*="st-key-kpis_"] [data-testid="stMetric"]:hover {
+  box-shadow: var(--ga-shadow);
+  border-color: var(--ga-periwinkle-light);
+}
+
+[class*="st-key-kpis_"] [data-testid="stMetricValue"] {
+  color: var(--ga-navy);
+}
+
+/* ------------------------------------------------------------------ verdict card (ui.verdict_block) */
+
+div[class*="st-key-verdict_"][data-testid="stVerticalBlock"] {
+  position: relative;
+  overflow: hidden;
+  padding-left: 1.4rem;
+  border-color: rgba(98, 112, 189, 0.32);
+  background: linear-gradient(135deg, rgba(236, 238, 248, 0.95) 0%, #FFFFFF 45%, rgba(255, 249, 236, 0.9) 100%);
+}
+
+/* Accent bar down the left edge. */
+div[class*="st-key-verdict_"][data-testid="stVerticalBlock"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 5px;
+  background: linear-gradient(180deg, var(--ga-navy) 0%, var(--ga-periwinkle) 50%, var(--ga-coral) 100%);
+}
+
+/* ------------------------------------------------------------------ Slot Plan campaigns */
+
+.st-key-campaign_black_friday { --ga-campaign: var(--ga-coral); }
+.st-key-campaign_cyber_monday { --ga-campaign: var(--ga-periwinkle); }
+.st-key-campaign_december { --ga-campaign: var(--ga-gold); }
+
+/* Same selector as the general heading bar plus the campaign key, so it wins on specificity. */
+[data-testid="stMain"] [class*="st-key-campaign_"] [data-testid="stHeading"]:has(h2, h3)::after {
+  width: 3.5rem;
+  background: var(--ga-campaign);
+}
+
+div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"] {
+  position: relative;
+  overflow: hidden;
+  padding-top: 1.1rem;
+  border-color: color-mix(in srgb, var(--ga-campaign, #2F3B7D) 35%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ga-campaign, #2F3B7D) 7%, white) 0%, #FFFFFF 55%);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--ga-campaign, var(--ga-navy));
+}
+
+div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"]:hover {
+  border-color: var(--ga-campaign, var(--ga-navy));
+  box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--ga-campaign, #2F3B7D) 70%, transparent);
+}
+
+/* ------------------------------------------------------------------ buttons, expanders, nav links */
+
+/* Primary buttons (the AI actions) get a navy-to-indigo gradient and a glow on hover. */
+button[data-testid="stBaseButton-primary"]:not(:disabled) {
+  background-image: linear-gradient(135deg, var(--ga-navy) 0%, #5361B8 100%);
+  border-color: transparent;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+button[data-testid="stBaseButton-primary"]:not(:disabled):hover {
+  box-shadow: 0 6px 16px -4px rgba(47, 59, 125, 0.6);
+  filter: brightness(1.1);
+}
+
+[data-testid="stExpander"] details {
+  transition: border-color 0.2s ease;
+}
+
+[data-testid="stExpander"] details:hover {
+  border-color: var(--ga-periwinkle-light);
+}
+
+/* The current page gets a coral underline; other links fade in a periwinkle one on hover. */
+[data-testid="stTopNavLink"] {
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+[data-testid="stTopNavLink"]:hover {
+  box-shadow: inset 0 -3px 0 var(--ga-periwinkle-light);
+}
+
+[data-testid="stTopNavLink"][aria-current="page"] {
+  box-shadow: inset 0 -3px 0 var(--ga-coral);
+}
+
+/* ------------------------------------------------------------------ motion */
+
+/* Entrances and hover lifts only for viewers who have not asked their system for reduced motion.
+   Entrances use fill-mode "backwards", so once they end Streamlit's own styles (such as the fade it puts
+   on stale elements during a rerun) apply again. Elements that stay on screen across reruns keep their
+   identity, so they animate when a page opens, not on every filter change. */
+@media (prefers-reduced-motion: no-preference) {
+  div.st-key-page_hero[data-testid="stVerticalBlock"] {
+    animation: ga-rise 0.5s ease-out backwards;
+  }
+
+  [class*="st-key-kpis_"] [data-testid="stColumn"] {
+    animation: ga-rise 0.45s ease-out backwards;
+  }
+
+  [class*="st-key-kpis_"] [data-testid="stColumn"]:nth-child(2) { animation-delay: 0.06s; }
+  [class*="st-key-kpis_"] [data-testid="stColumn"]:nth-child(3) { animation-delay: 0.12s; }
+  [class*="st-key-kpis_"] [data-testid="stColumn"]:nth-child(4) { animation-delay: 0.18s; }
+  [class*="st-key-kpis_"] [data-testid="stColumn"]:nth-child(5) { animation-delay: 0.24s; }
+  [class*="st-key-kpis_"] [data-testid="stColumn"]:nth-child(n+6) { animation-delay: 0.3s; }
+
+  div[class*="st-key-verdict_"][data-testid="stVerticalBlock"] {
+    animation: ga-rise 0.5s ease-out 0.08s backwards;
+  }
+
+  div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"] {
+    animation: ga-rise 0.45s ease-out backwards;
+  }
+
+  [class*="st-key-kpis_"] [data-testid="stMetric"]:hover,
+  div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"]:hover {
+    transform: translateY(-3px);
+  }
+
+  button[data-testid="stBaseButton-primary"]:not(:disabled):hover {
+    transform: translateY(-1px);
+  }
+}
+
+/* ------------------------------------------------------------------ top navigation width */
+
+/* Streamlit folds page links that do not fit into an "N more" menu and marks them aria-hidden; these rules
+   keep every link in the bar instead.
+   1. Below 1440px wide, the seven links with icons no longer fit beside the sidebar (measured: they need
       about 1426px), so the icons go: the page names alone fit down to about 1270px with the sidebar open. */
 @media (max-width: 1439px) {
   [data-testid="stTopNavLink"] > span:has([data-testid="stIconMaterial"]) {
