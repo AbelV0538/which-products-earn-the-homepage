@@ -22,6 +22,11 @@
   to { opacity: 1; transform: none; }
 }
 
+@keyframes ga-shimmer {
+  from { background-position: 0% 0; }
+  to { background-position: 200% 0; }
+}
+
 /* ------------------------------------------------------------------ frame */
 
 /* A thin brand-gradient strip across the top of every page. */
@@ -202,33 +207,36 @@ button[data-testid="stBaseButton-primary"]:not(:disabled):hover {
 
 /* ------------------------------------------------------------------ motion */
 
-/* Entrances and hover lifts only for viewers who have not asked their system for reduced motion.
-   Entrances use fill-mode "backwards", so once they end Streamlit's own styles (such as the fade it puts
-   on stale elements during a rerun) apply again. Elements that stay on screen across reruns keep their
-   identity, so they animate when a page opens, not on every filter change. */
+/* All motion is only for viewers who have not asked their system for reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
-  div.st-key-page_hero[data-testid="stVerticalBlock"] {
-    animation: ga-rise 0.5s ease-out backwards;
+  /* Page transition: each top-level block of the page fades in and rises, the first eight 45 ms apart,
+     so a page builds from the top down as it opens (Streamlit dims the old page meanwhile). Streamlit
+     re-creates a page's blocks when you switch to it but keeps them across reruns, so a filter change
+     does not replay this; only a block that newly appears (such as "Category to highlight") rises in.
+     Fill-mode "backwards" hands the blocks back to Streamlit's own styles once the entrance ends. */
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > * {
+    animation: ga-rise 0.35s ease-out backwards;
   }
 
-  [class*="st-key-kpis_"] [data-testid="stColumn"] {
-    animation: ga-rise 0.45s ease-out backwards;
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(2) { animation-delay: 0.045s; }
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(3) { animation-delay: 0.09s; }
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(4) { animation-delay: 0.135s; }
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(5) { animation-delay: 0.18s; }
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(6) { animation-delay: 0.225s; }
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(7) { animation-delay: 0.27s; }
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(8) { animation-delay: 0.315s; }
+  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(n+9) { animation-delay: 0.36s; }
+
+  /* Loading shimmer: while Streamlit runs a page (its status widget is on screen), the colours of the
+     top strip sweep sideways; the strip goes still when the page is ready. The gradient ends where it
+     starts, so the 200%-wide background repeats without a seam. */
+  [data-testid="stApp"]:has([data-testid="stStatusWidget"])::before {
+    background: linear-gradient(90deg, #2F3B7D, #6270BD, #F7646A, #F8E79A, #F7646A, #6270BD, #2F3B7D);
+    background-size: 200% 100%;
+    animation: ga-shimmer 1.4s linear infinite;
   }
 
-  [class*="st-key-kpis_"] [data-testid="stColumn"]:nth-child(2) { animation-delay: 0.06s; }
-  [class*="st-key-kpis_"] [data-testid="stColumn"]:nth-child(3) { animation-delay: 0.12s; }
-  [class*="st-key-kpis_"] [data-testid="stColumn"]:nth-child(4) { animation-delay: 0.18s; }
-  [class*="st-key-kpis_"] [data-testid="stColumn"]:nth-child(5) { animation-delay: 0.24s; }
-  [class*="st-key-kpis_"] [data-testid="stColumn"]:nth-child(n+6) { animation-delay: 0.3s; }
-
-  div[class*="st-key-verdict_"][data-testid="stVerticalBlock"] {
-    animation: ga-rise 0.5s ease-out 0.08s backwards;
-  }
-
-  div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"] {
-    animation: ga-rise 0.45s ease-out backwards;
-  }
-
+  /* Hover lifts. */
   [class*="st-key-kpis_"] [data-testid="stMetric"]:hover,
   div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"]:hover {
     transform: translateY(-3px);
