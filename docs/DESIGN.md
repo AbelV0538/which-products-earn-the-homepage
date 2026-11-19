@@ -431,6 +431,10 @@ README.md
   - The page background stays white: the charts paint their own white surface, and the theme stays light-only for the same reason.
 - `[theme.sidebar]`: navy `#2F3B7D` background, `#3C4A92` inputs, white text, `#5A67AD` borders, pale yellow `#F8E79A` for selected options, toggles and sliders (8:1 on navy; coral would be 3.4:1).
 - `app.py`: a Material icon for each page in the top nav, `page_icon=":material/storefront:"`, and `st.logo` from `assets/`. `logo.svg` is a 250x40 wordmark (Streamlit's 200x32 logo box at 1.25x), drawn with light text for the navy sidebar. `logo_icon.svg` is the square mark shown in the header when the sidebar is collapsed. The logo is set after the snapshot guard, because the error page has no sidebar.
+- `assets/app.css` (loaded with `st.html`, the only custom CSS; data-testid selectors, written against Streamlit 1.66) keeps all seven page links in the top bar. By default Streamlit folds the links that do not fit into an "N more" menu and marks them `aria-hidden`.
+  - Below 1440px wide the nav icons are hidden: with the sidebar open the links with icons need about 1426px, the names alone about 1270px.
+  - The nav is never narrower than its links (`min-width: max-content`), and a folded link keeps its place in the row (`position: static`), so Streamlit's next measurement finds room and unfolds it. The header row scrolls sideways instead, with a periwinkle scroll bar.
+  - Measured with fresh loads and live resizing from 800 to 1920px, sidebar open and collapsed: no link is ever folded. All seven fit without scrolling from 1280px with the sidebar open (1100px collapsed); below that the bar scrolls.
 - `[global]`: `disableWidgetStateDuplicationWarning = true`.
 - `[browser]`: `gatherUsageStats = false`.
 - If OneDrive sync triggers spurious reruns, set `server.fileWatcherType = "poll"` or `"none"`.

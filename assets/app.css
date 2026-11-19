@@ -1,0 +1,30 @@
+/* Top navigation on presentation-sized screens. Written against Streamlit 1.66's markup (data-testid
+   selectors only); re-check after upgrading Streamlit. Streamlit folds page links that do not fit into an
+   "N more" menu and marks them aria-hidden, so these rules keep every link in the bar instead. */
+
+/* 1. Below 1440px wide, the seven links with icons no longer fit beside the sidebar (measured: they need
+      about 1426px), so the icons go: the page names alone fit down to about 1270px with the sidebar open. */
+@media (max-width: 1439px) {
+  [data-testid="stTopNavLink"] > span:has([data-testid="stIconMaterial"]) {
+    display: none;
+  }
+}
+
+/* 2. Narrower than that, scroll instead of folding. The nav is never narrower than its links, so Streamlit
+      always finds room for every page (none stays folded or hidden from screen readers), and the header row
+      scrolls sideways when the window is too narrow to show them all. */
+[data-testid="stTopNav"] {
+  min-width: max-content;
+}
+
+/* A link Streamlit has folded keeps its place in the row (still invisible), so the nav grows wide enough
+   for it and Streamlit unfolds it on its next measurement. The "N more" button is left alone. */
+[data-testid="stTopNav"] > div:not(:has([data-testid="stTopNavSection"])) {
+  position: static !important;
+}
+
+[data-testid="stToolbar"] > div:has(> [data-testid="stTopNav"]) {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #9AA6D9 transparent; /* periwinkle from the palette; the default thumb is near-invisible */
+}

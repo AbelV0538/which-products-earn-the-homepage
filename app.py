@@ -39,6 +39,8 @@ if missing:
 # After the guard: the wordmark's light text is drawn for the navy sidebar, which the error page above lacks.
 # With the sidebar collapsed, the header shows the square icon instead.
 st.logo(str(ASSETS / "logo.svg"), size="large", icon_image=str(ASSETS / "logo_icon.svg"))
+# Keeps all seven page links in the top bar on narrow screens (no "N more" menu); see the comments in the file.
+st.html(ASSETS / "app.css")
 
 snapshot = data.get_snapshot()
 if snapshot.is_synthetic:
