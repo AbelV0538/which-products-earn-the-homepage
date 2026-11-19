@@ -4,7 +4,8 @@ the inspector."""
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping, Sequence
+import re
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Any
 
 import pandas as pd
@@ -133,24 +134,67 @@ def _shared_ai_cache() -> dict[str, dict]:
     return {}
 
 
-def verdict_block(payload: dict, *, key_prefix: str) -> None:
-    """Rule-based verdict at once; "Write AI verdict" streams the model's version in its place."""
+_VERDICT_LEAD = "**Verdict:**"
+_VERDICT_LEAD_RE = re.compile(r"^\s*\*\*Verdict:?\*\*:?\s*")
+AI_ICON = ":material/auto_awesome:"
+AI_CHECK_NOTE = "Checked: every product code the AI cites is in the data."
+
+
+def _verdict_md(text: str) -> str:
+    """The verdict text without its leading "**Verdict:**", which the card's header already says."""
+    return _VERDICT_LEAD_RE.sub("", text, count=1)
+
+
+def _verdict_chunks(chunks: Iterator[str]) -> Iterator[str]:
+    """A verdict stream with its leading "**Verdict:**" dropped, held back only until it can be seen."""
+    buf: str | None = ""
+    for chunk in chunks:
+        if buf is None:
+            yield chunk
+            continue
+        buf += chunk
+        head = buf.lstrip()
+        if len(head) <= len(_VERDICT_LEAD) and _VERDICT_LEAD.startswith(head):
+            continue  # may still turn out to be the lead
+        yield _verdict_md(buf)
+        buf = None
+    if buf:
+        yield _verdict_md(buf)
+
+
+def _rule_badge(slot) -> None:
+    slot.badge("Rule-based", icon=":material/rule:", color="gray", help="Computed from the numbers on this page.")
+
+
+def _ai_badge(slot, model: str | None) -> None:
+    slot.badge(f"AI · {model or 'model'}", icon=AI_ICON, color="violet")
+
+
+def verdict_block(payload: dict, *, key_prefix: str, title: str = "Verdict") -> None:
+    """Rule-based verdict at once; "Write AI verdict" streams the model's version in its place.
+    The card's header row shows ``title`` and a badge saying where the verdict came from."""
     model, api_key, _source = state.ai_settings()
     cache = st.session_state.setdefault(state.AI_CACHE, {})
     ck = narrative.cache_key(payload, model or "-")
     hit = cache.get(ck) or _shared_ai_cache().get(ck)
     rule = narrative.rule_based_verdict(payload)
     box = st.container(border=True)
+    head = box.container(horizontal=True, vertical_alignment="center", gap="small")
+    head.subheader(title, anchor=False, icon=":material/gavel:", width="content")
+    source = head.empty()
     body = box.empty()
+    note = box.empty()  # the AI check note, or a warning when the AI text is not shown
     if hit:
-        body.markdown(narrative.md_safe(hit["text"]))
-        box.caption(f"AI verdict · {esc(hit.get('model') or model)} · checked: every product code cites the data.")
+        body.markdown(_verdict_md(narrative.md_safe(hit["text"])))
+        _ai_badge(source, hit.get("model") or model)
+        note.caption(AI_CHECK_NOTE)
     else:
-        body.markdown(rule)
-        box.caption("Rule-based verdict computed from the numbers on this page.")
+        body.markdown(_verdict_md(rule))
+        _rule_badge(source)
 
-    c1, c2 = box.columns([1, 3])
-    clicked = c1.button("Write AI verdict", key=f"{key_prefix}ai_write", disabled=not model, type="secondary")
+    c1, c2 = box.columns([1, 3], vertical_alignment="center")
+    clicked = c1.button("Write AI verdict", key=f"{key_prefix}ai_write", disabled=not model, type="primary",
+                        icon=AI_ICON)
     c2.caption(COST_NOTE + ("" if api_key or llm.fake_mode() else " Add an OpenRouter key under **AI narrator** in the sidebar."))
     last_key = f"{key_prefix}ai_last"
     auto = bool(st.session_state.get(state.AI_AUTO)) and not hit and st.session_state.get(last_key) != ck
@@ -158,21 +202,26 @@ def verdict_block(payload: dict, *, key_prefix: str) -> None:
         return
     st.session_state[last_key] = ck
     sink: dict = {}
+    source.badge("Writing…", icon=AI_ICON, color="violet")
+    note.empty()
     with body.container():
-        st.write_stream(narrative.verdict_stream(payload, api_key=api_key, model=model, sink=sink))
+        st.write_stream(_verdict_chunks(narrative.verdict_stream(payload, api_key=api_key, model=model, sink=sink)))
     unknown = sink.get("unknown") or []
     if sink.get("error"):
-        body.markdown(narrative.md_safe(sink.get("text") or rule))
-        box.warning(f"AI narrator unavailable ({esc(sink['error'])}). Showing the rule-based verdict.")
+        body.markdown(_verdict_md(narrative.md_safe(sink.get("text") or rule)))
+        _rule_badge(source)
+        note.warning(f"AI narrator unavailable ({esc(sink['error'])}). Showing the rule-based verdict.")
     elif unknown:
-        body.markdown(rule)
-        box.warning(f"The AI cited product codes that are not in the data ({esc(', '.join(unknown))}), so the rule-based verdict is shown instead.")
+        body.markdown(_verdict_md(rule))
+        _rule_badge(source)
+        note.warning(f"The AI cited product codes that are not in the data ({esc(', '.join(unknown))}), so the rule-based verdict is shown instead.")
     else:
         entry = {"text": sink.get("text", ""), "model": sink.get("model") or model, "usage": sink.get("usage")}
         cache[ck] = entry
         _shared_ai_cache()[ck] = entry
-        body.markdown(narrative.md_safe(entry["text"]))
-        box.caption(f"AI verdict · {esc(entry['model'])}")
+        body.markdown(_verdict_md(narrative.md_safe(entry["text"])))
+        _ai_badge(source, entry["model"])
+        note.caption(AI_CHECK_NOTE)
 
 
 # --------------------------------------------------------------------------- chart notes
@@ -201,12 +250,12 @@ def chart_notes_controls(
     """
     model, api_key, _source = state.ai_settings()
     toggle_key = f"{key_prefix}notes_on"
-    c1, c2, c3 = st.columns([2.0, 1.3, 2.7], vertical_alignment="center")
+    c1, c2, c3 = st.columns([1.9, 1.6, 2.5], vertical_alignment="center")  # c2 fits the icon button
     c1.toggle("Point out what matters", key=toggle_key,
               help="Numbered notes on the chart for the bubbles, bars or cells that matter most for the "
                    "homepage decision. Every number in a note is checked against the data.")
     clicked = c2.button("Write AI notes", key=f"{key_prefix}notes_ai", disabled=not model or not anchors.anchors,
-                        on_click=_notes_on, args=(toggle_key,), type="secondary")
+                        on_click=_notes_on, args=(toggle_key,), type="primary", icon=AI_ICON)
     c3.caption(NOTES_COST_NOTE + ("" if api_key or llm.fake_mode() else
                                   " Add an OpenRouter key under **AI narrator** in the sidebar."))
     if not st.session_state.get(toggle_key):

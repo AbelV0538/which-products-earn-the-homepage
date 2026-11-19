@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40" role="img" aria-label="Which products earn the homepage?">
+  <rect x="0.75" y="0.75" width="38.5" height="38.5" rx="9" fill="#2F3B7D" stroke="#5A67AD" stroke-width="1.5"/>
+  <g transform="translate(8 7.5)">
+    <path d="M12 1.5 L23 11 L20 11 L20 22 L4 22 L4 11 L1 11 Z" fill="#F8E79A"/>
+    <path d="M12 10.5 L13.234 13.801 L16.755 13.955 L13.997 16.149 L14.939 19.545 L12 17.6 L9.061 19.545 L10.003 16.149 L7.245 13.955 L10.766 13.801 Z" fill="#2F3B7D"/>
+  </g>
+</svg>

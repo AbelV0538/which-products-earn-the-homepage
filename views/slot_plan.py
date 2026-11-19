@@ -239,17 +239,16 @@ for campaign in config.CAMPAIGNS:
     md.append("")
 md.append("## Retire from the homepage")
 md += [f"- {r.item_name}: {r.views:,} views, {100 * r.cr_raw:.2f}% conversion" for r in retire.itertuples()]
-d1, d2, _ = st.columns([1, 1, 3])
-d1.download_button("Download plan (CSV)", export.to_csv(index=False).encode("utf-8"), file_name="slot_plan.csv",
-                   mime="text/csv", on_click="ignore", key=f"{P}csv", width="stretch")
-d2.download_button("Download plan (Markdown)", "\n".join(md).encode("utf-8"), file_name="slot_plan.md",
-                   mime="text/markdown", on_click="ignore", key=f"{P}md", width="stretch")
+downloads = st.container(horizontal=True, gap="small")  # buttons as wide as their labels, never cut off
+downloads.download_button("Download plan (CSV)", export.to_csv(index=False).encode("utf-8"), file_name="slot_plan.csv",
+                          mime="text/csv", on_click="ignore", key=f"{P}csv")
+downloads.download_button("Download plan (Markdown)", "\n".join(md).encode("utf-8"), file_name="slot_plan.md",
+                          mime="text/markdown", on_click="ignore", key=f"{P}md")
 
-# Optional AI verdict on the plan.
-st.subheader("Verdict on the plan")
+# Optional AI verdict on the plan (the card's header carries the section title).
 payload = narrative.build_payload(
     season_products, season_th, season_f, window_label="Full season (slot plan)", cannibal=cannibal,
     slot_plan=plan, **data.verdict_context(snapshot, f),
 )
-ui.verdict_block(payload, key_prefix=P)
+ui.verdict_block(payload, key_prefix=P, title="Verdict on the plan")
 ui.caveat_note()

@@ -261,6 +261,7 @@ GitHub Actions (`.github/workflows/tests.yml`) runs the same suite on every push
 ```
 app.py                 entry point: navigation, shared sidebar, snapshot guard
 views/                 the 7 pages
+assets/                the logo: sidebar wordmark and collapsed-sidebar icon
 ga4app/
   config.py            season windows, thresholds, validated colour palette, model list
   contracts.py         parquet/json schemas, validation, atomic writers

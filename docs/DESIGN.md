@@ -425,8 +425,12 @@ README.md
 ```
 
 **`.streamlit/config.toml`**
-- `[theme]`: base light, primaryColor `#2F3B7D`, backgroundColor `#FFFFFF`, secondaryBackgroundColor `#ECEEF8`, textColor `#1F2433`, font "sans-serif", chartCategoricalColors `["#2a78d6","#eb6834","#1baf7a","#8A8F98"]`.
-- `[theme.sidebar]`: backgroundColor `#ECEEF8`.
+- `[theme]`: base light, primaryColor `#2F3B7D`, backgroundColor `#FFFFFF`, secondaryBackgroundColor `#ECEEF8`, textColor `#1F2433`.
+  - Fonts from Google Fonts: Inter for text (the font the charts already ask for) and Plus Jakarta Sans for headings (weights 800, 700, 700, 600, 600, 600).
+  - Inter is wider than Streamlit's default font, so `baseFontSize = 15` and `metricValueFontSize = "1.875rem"` (weight 700). At 16px the KPI tiles cut off "2,528,496" and the seven nav items no longer fit on one line at 1440px.
+  - The page background stays white: the charts paint their own white surface, and the theme stays light-only for the same reason.
+- `[theme.sidebar]`: navy `#2F3B7D` background, `#3C4A92` inputs, white text, `#5A67AD` borders, pale yellow `#F8E79A` for selected options, toggles and sliders (8:1 on navy; coral would be 3.4:1).
+- `app.py`: a Material icon for each page in the top nav, `page_icon=":material/storefront:"`, and `st.logo` from `assets/`. `logo.svg` is a 250x40 wordmark (Streamlit's 200x32 logo box at 1.25x), drawn with light text for the navy sidebar. `logo_icon.svg` is the square mark shown in the header when the sidebar is collapsed. The logo is set after the snapshot guard, because the error page has no sidebar.
 - `[global]`: `disableWidgetStateDuplicationWarning = true`.
 - `[browser]`: `gatherUsageStats = false`.
 - If OneDrive sync triggers spurious reruns, set `server.fileWatcherType = "poll"` or `"none"`.
@@ -751,6 +755,8 @@ FROM pr GROUP BY 1,2,3,4,5,6,7,8,9,10;
 **1. Feature Picks (Q1, Q2; default page)**
 - Header with a scope caption.
 - Verdict card: rule-based immediately; "Write AI verdict" streams the AI version.
+  - Header row: a gavel icon, the title ("Verdict"; "Verdict on the plan" on the Slot Plan) and a badge for the source (grey "Rule-based", violet "AI · model", "Writing…" while streaming). The body drops the text's leading `**Verdict:**`, also while streaming, since the header says it; the generated text keeps it.
+  - "Write AI verdict" and "Write AI notes" are primary buttons with the `auto_awesome` icon, so the AI actions stand out.
 - KPI tiles: eligible products; average conversion (delta vs full season); views; purchases; forgone purchases.
 - Page controls: y-axis Raw/Adjusted; high-traffic cutoff; colour by Category or Highlight one; bubble size Revenue or Purchases.
 - Main chart, the quadrant bubble scatter:
