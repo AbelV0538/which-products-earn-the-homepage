@@ -8,6 +8,8 @@
 
 **Live app: <https://which-earns-the-homepage.streamlit.app/>** (nothing to install; or run it locally, see [Quick start](#quick-start)).
 
+**Presenting it?** The 10-minute demo's run of show, talk track, click path, fallbacks and Q&A prep are in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+
 ![Feature Picks page](docs/screenshots/feature_picks.png)
 
 ---
@@ -281,6 +283,7 @@ data/                  committed snapshots; data/raw/ = raw exports + Trends cac
 tests/                 pytest + AppTest
 docs/DESIGN.md         full design: contracts, SQL, formulas, page specs (7b: chart notes and the live run)
 docs/PLAN_ai_chart_notes.md   the build plan for the chart notes, with what changed while building
+docs/DEMO_SCRIPT.md    the peer-review demo: run of show, talk track, Q&A prep, sources
 docs/screenshots/      the README images
 .devcontainer/         GitHub Codespaces setup (installs requirements.txt, starts the app)
 .github/workflows/     CI: snapshot checks + the test suite on every push
