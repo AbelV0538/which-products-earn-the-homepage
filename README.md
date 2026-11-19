@@ -8,7 +8,7 @@
 
 **Live app: <https://which-earns-the-homepage.streamlit.app/>** (nothing to install; or run it locally, see [Quick start](#quick-start)).
 
-**Presenting it?** The 10-minute demo's run of show, talk track, click path, fallbacks and Q&A prep are in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+**Presenting it?** [`docs/DEMO_SCRIPT_LIVE.md`](docs/DEMO_SCRIPT_LIVE.md) is a demo of under 8 minutes that runs entirely in the app, no slides needed. [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) is the 10-minute version that goes with the slide deck. Both have the talk track, click path, fallbacks and Q&A prep.
 
 ![Feature Picks page](docs/screenshots/feature_picks.png)
 
@@ -283,7 +283,8 @@ data/                  committed snapshots; data/raw/ = raw exports + Trends cac
 tests/                 pytest + AppTest
 docs/DESIGN.md         full design: contracts, SQL, formulas, page specs (7b: chart notes and the live run)
 docs/PLAN_ai_chart_notes.md   the build plan for the chart notes, with what changed while building
-docs/DEMO_SCRIPT.md    the peer-review demo: run of show, talk track, Q&A prep, sources
+docs/DEMO_SCRIPT.md    the peer-review demo with the slide deck: run of show, talk track, Q&A prep, sources
+docs/DEMO_SCRIPT_LIVE.md   the same demo in the app only, no slides, under 8 minutes
 docs/screenshots/      the README images
 .devcontainer/         GitHub Codespaces setup (installs requirements.txt, starts the app)
 .github/workflows/     CI: snapshot checks + the test suite on every push
