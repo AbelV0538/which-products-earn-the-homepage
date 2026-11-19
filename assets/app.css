@@ -49,10 +49,7 @@ div.st-key-page_hero[data-testid="stVerticalBlock"] {
   padding: 1.1rem 1.75rem 1rem;
   border-radius: 1rem;
   border: 1px solid rgba(98, 112, 189, 0.18);
-  background:
-    radial-gradient(120% 150% at 100% 0%, rgba(247, 100, 106, 0.16) 0%, transparent 55%),
-    radial-gradient(90% 130% at 85% 115%, rgba(248, 231, 154, 0.6) 0%, transparent 60%),
-    linear-gradient(115deg, #ECEEF8 0%, #F3F1FB 50%, #FFF9EC 100%);
+  background: var(--ga-lavender);
 }
 
 /* Navy-to-indigo gradient on the title text. Its lightest end, #6270BD, is 3.97:1 on the lavender panel:
