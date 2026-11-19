@@ -1,0 +1,281 @@
+/* The app's only custom CSS, loaded with st.html in app.py. Written against Streamlit 1.66 (pinned in
+   requirements.txt); re-check after upgrading. Our own elements are styled through their key= classes
+   (.st-key-...); Streamlit's are reached through data-testid attributes only, never generated class names.
+   The charts are not styled here: they paint their own white surface. Colours are the palette in
+   ga4app/config.py: navy #2F3B7D, periwinkle #6270BD / #9AA6D9, lavender #ECEEF8, coral #F7646A,
+   pale yellow #F8E79A, plus a deeper gold #E9B949 for thin accents (pale yellow is too faint as a line). */
+
+:root {
+  --ga-navy: #2F3B7D;
+  --ga-periwinkle: #6270BD;
+  --ga-periwinkle-light: #9AA6D9;
+  --ga-lavender: #ECEEF8;
+  --ga-coral: #F7646A;
+  --ga-yellow: #F8E79A;
+  --ga-gold: #E9B949;
+  --ga-brand: linear-gradient(90deg, #2F3B7D 0%, #6270BD 35%, #F7646A 70%, #F8E79A 100%);
+  --ga-shadow: 0 10px 24px -10px rgba(47, 59, 125, 0.45);
+}
+
+@keyframes ga-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ga-shimmer {
+  from { background-position: 0% 0; }
+  to { background-position: 200% 0; }
+}
+
+/* ------------------------------------------------------------------ frame */
+
+/* A thin brand-gradient strip across the top of every page. */
+[data-testid="stApp"]::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--ga-brand);
+  z-index: 1000002;
+  pointer-events: none;
+}
+
+/* The navy sidebar deepens toward indigo at the bottom. */
+section[data-testid="stSidebar"] {
+  background-image: linear-gradient(180deg, #2F3B7D 0%, #2C3676 55%, #382F79 100%);
+}
+
+/* ------------------------------------------------------------------ page header (ui.header) */
+
+div.st-key-page_hero[data-testid="stVerticalBlock"] {
+  padding: 1.1rem 1.75rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(98, 112, 189, 0.18);
+  background: var(--ga-lavender);
+}
+
+.st-key-page_hero h1 [data-heading-text] {
+  color: var(--ga-navy);
+}
+
+/* The faded caption grey drops below 4.5:1 on the tinted panel, so it is darkened there. */
+.st-key-page_hero [data-testid="stCaptionContainer"] {
+  color: #4B5063;
+}
+
+/* ------------------------------------------------------------------ section headings */
+
+/* A short navy-to-coral bar under each section heading; it stretches on hover. */
+[data-testid="stMain"] [data-testid="stHeading"]:has(h2, h3)::after {
+  content: "";
+  display: block;
+  width: 2.75rem;
+  height: 4px;
+  margin-top: 0.3rem;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--ga-navy), var(--ga-coral));
+  transition: width 0.35s ease;
+}
+
+[data-testid="stMain"] [data-testid="stHeading"]:has(h2, h3):hover::after {
+  width: 5rem;
+}
+
+/* Not inside the verdict card, whose heading sits in a row with its badge. */
+[class*="st-key-verdict_"] [data-testid="stHeading"]::after {
+  content: none !important;
+}
+
+/* ------------------------------------------------------------------ KPI tiles (ui.kpi_row) */
+
+[class*="st-key-kpis_"] [data-testid="stMetric"] {
+  position: relative;
+  border-color: rgba(98, 112, 189, 0.28);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+[class*="st-key-kpis_"] [data-testid="stMetric"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--ga-navy);
+}
+
+[class*="st-key-kpis_"] [data-testid="stMetric"]:hover {
+  box-shadow: var(--ga-shadow);
+  border-color: var(--ga-periwinkle-light);
+}
+
+[class*="st-key-kpis_"] [data-testid="stMetricValue"] {
+  color: var(--ga-navy);
+}
+
+/* ------------------------------------------------------------------ verdict card (ui.verdict_block) */
+
+div[class*="st-key-verdict_"][data-testid="stVerticalBlock"] {
+  position: relative;
+  overflow: hidden;
+  padding-left: 1.4rem;
+  border-color: rgba(98, 112, 189, 0.32);
+  background: #F5F6FB; /* a paler lavender than the page-header box */
+}
+
+/* Accent bar down the left edge. */
+div[class*="st-key-verdict_"][data-testid="stVerticalBlock"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 5px;
+  background: var(--ga-navy);
+}
+
+/* ------------------------------------------------------------------ Slot Plan campaigns */
+
+.st-key-campaign_black_friday { --ga-campaign: var(--ga-coral); }
+.st-key-campaign_cyber_monday { --ga-campaign: var(--ga-periwinkle); }
+.st-key-campaign_december { --ga-campaign: var(--ga-gold); }
+
+/* Same selector as the general heading bar plus the campaign key, so it wins on specificity. */
+[data-testid="stMain"] [class*="st-key-campaign_"] [data-testid="stHeading"]:has(h2, h3)::after {
+  width: 3.5rem;
+  background: var(--ga-campaign);
+}
+
+div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"] {
+  position: relative;
+  overflow: hidden;
+  padding-top: 1.1rem;
+  border-color: color-mix(in srgb, var(--ga-campaign, #2F3B7D) 35%, transparent);
+  background: color-mix(in srgb, var(--ga-campaign, #2F3B7D) 5%, white);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"]::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--ga-campaign, var(--ga-navy));
+}
+
+div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"]:hover {
+  border-color: var(--ga-campaign, var(--ga-navy));
+  box-shadow: 0 10px 24px -10px color-mix(in srgb, var(--ga-campaign, #2F3B7D) 70%, transparent);
+}
+
+/* ------------------------------------------------------------------ buttons, expanders, nav links */
+
+/* Primary buttons (the AI actions) glow on hover. */
+button[data-testid="stBaseButton-primary"]:not(:disabled) {
+  transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+button[data-testid="stBaseButton-primary"]:not(:disabled):hover {
+  box-shadow: 0 6px 16px -4px rgba(47, 59, 125, 0.6);
+  filter: brightness(1.1);
+}
+
+[data-testid="stExpander"] details {
+  transition: border-color 0.2s ease;
+}
+
+[data-testid="stExpander"] details:hover {
+  border-color: var(--ga-periwinkle-light);
+}
+
+/* The current page gets a coral underline; other links fade in a periwinkle one on hover. */
+[data-testid="stTopNavLink"] {
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+[data-testid="stTopNavLink"]:hover {
+  box-shadow: inset 0 -3px 0 var(--ga-periwinkle-light);
+}
+
+[data-testid="stTopNavLink"][aria-current="page"] {
+  box-shadow: inset 0 -3px 0 var(--ga-coral);
+}
+
+/* ------------------------------------------------------------------ motion */
+
+/* The animations play whatever the viewer's system motion setting (prefers-reduced-motion) says: a
+   deliberate choice for this class project, where the transitions are part of the demo. Windows reports
+   "reduce" whenever Settings > Accessibility > Visual effects > Animation effects is off, which hid them
+   entirely on the development machine. */
+
+/* Page transition: each top-level block of the page fades in and rises 12px, the first eight 45 ms apart,
+   so a page builds from the top down as it opens (Streamlit dims the old page meanwhile). Streamlit
+   re-creates a page's blocks when you switch to it but keeps them across reruns, so a filter change does
+   not replay this; only a block that newly appears (such as "Category to highlight") rises in. Fill-mode
+   "backwards" hands the blocks back to Streamlit's own styles once the entrance ends. */
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > * {
+  animation: ga-rise 0.35s ease-out backwards;
+}
+
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(2) { animation-delay: 0.045s; }
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(3) { animation-delay: 0.09s; }
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(4) { animation-delay: 0.135s; }
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(5) { animation-delay: 0.18s; }
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(6) { animation-delay: 0.225s; }
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(7) { animation-delay: 0.27s; }
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(8) { animation-delay: 0.315s; }
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(n+9) { animation-delay: 0.36s; }
+
+/* Loading shimmer: while Streamlit runs a page (its status widget is on screen), the colours of the top
+   strip sweep sideways; the strip goes still when the page is ready. The gradient ends where it starts,
+   so the 200%-wide background repeats without a seam. */
+[data-testid="stApp"]:has([data-testid="stStatusWidget"])::before {
+  background: linear-gradient(90deg, #2F3B7D, #6270BD, #F7646A, #F8E79A, #F7646A, #6270BD, #2F3B7D);
+  background-size: 200% 100%;
+  animation: ga-shimmer 1.4s linear infinite;
+}
+
+/* Hover lifts. */
+[class*="st-key-kpis_"] [data-testid="stMetric"]:hover,
+div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"]:hover {
+  transform: translateY(-3px);
+}
+
+button[data-testid="stBaseButton-primary"]:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+/* ------------------------------------------------------------------ top navigation width */
+
+/* Streamlit folds page links that do not fit into an "N more" menu and marks them aria-hidden; these rules
+   keep every link in the bar instead.
+   1. Below 1440px wide, the seven links with icons no longer fit beside the sidebar (measured: they need
+      about 1426px), so the icons go: the page names alone fit down to about 1270px with the sidebar open. */
+@media (max-width: 1439px) {
+  [data-testid="stTopNavLink"] > span:has([data-testid="stIconMaterial"]) {
+    display: none;
+  }
+}
+
+/* 2. Narrower than that, scroll instead of folding. The nav is never narrower than its links, so Streamlit
+      always finds room for every page (none stays folded or hidden from screen readers), and the header row
+      scrolls sideways when the window is too narrow to show them all. */
+[data-testid="stTopNav"] {
+  min-width: max-content;
+}
+
+/* A link Streamlit has folded keeps its place in the row (still invisible), so the nav grows wide enough
+   for it and Streamlit unfolds it on its next measurement. The "N more" button is left alone. */
+[data-testid="stTopNav"] > div:not(:has([data-testid="stTopNavSection"])) {
+  position: static !important;
+}
+
+[data-testid="stToolbar"] > div:has(> [data-testid="stTopNav"]) {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #9AA6D9 transparent; /* periwinkle from the palette; the default thumb is near-invisible */
+}

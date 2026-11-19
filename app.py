@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 
 from ga4app import config, data, state, ui
 
-st.set_page_config(page_title=config.APP_TITLE, layout="wide")
+ASSETS = Path(__file__).resolve().parent / "assets"
 
-PAGES = (
-    ("views/feature_picks.py", "Feature Picks", "feature_picks"),
-    ("views/holiday_shift.py", "Holiday Shift", "holiday_shift"),
-    ("views/device_split.py", "Device Split", "device_split"),
-    ("views/outside_signal.py", "Outside Signal", "outside_signal"),
-    ("views/cannibalization.py", "Cannibalization Check", "cannibalization"),
-    ("views/slot_plan.py", "Slot Plan", "slot_plan"),
-    ("views/data_method.py", "Data & Method", "data_method"),
+st.set_page_config(page_title=config.APP_TITLE, page_icon=":material/storefront:", layout="wide")
+
+PAGES = (  # (script, nav title, page id, nav icon)
+    ("views/feature_picks.py", "Feature Picks", "feature_picks", ":material/star:"),
+    ("views/holiday_shift.py", "Holiday Shift", "holiday_shift", ":material/celebration:"),
+    ("views/device_split.py", "Device Split", "device_split", ":material/devices:"),
+    ("views/outside_signal.py", "Outside Signal", "outside_signal", ":material/trending_up:"),
+    ("views/cannibalization.py", "Cannibalization Check", "cannibalization", ":material/compare_arrows:"),
+    ("views/slot_plan.py", "Slot Plan", "slot_plan", ":material/view_module:"),
+    ("views/data_method.py", "Data & Method", "data_method", ":material/database:"),
 )
 
 data_dir = data.resolve_data_dir()
@@ -32,12 +36,18 @@ if missing:
     )
     st.stop()
 
+# After the guard: the wordmark's light text is drawn for the navy sidebar, which the error page above lacks.
+# With the sidebar collapsed, the header shows the square icon instead.
+st.logo(str(ASSETS / "logo.svg"), size="large", icon_image=str(ASSETS / "logo_icon.svg"))
+# Keeps all seven page links in the top bar on narrow screens (no "N more" menu); see the comments in the file.
+st.html(ASSETS / "app.css")
+
 snapshot = data.get_snapshot()
 if snapshot.is_synthetic:
     ui.synthetic_banner()
 
-pages = [st.Page(path, title=title, default=(i == 0)) for i, (path, title, _) in enumerate(PAGES)]
+pages = [st.Page(path, title=title, icon=icon, default=(i == 0)) for i, (path, title, _, icon) in enumerate(PAGES)]
 pg = st.navigation(pages, position="top")
-page_id = next((pid for _, title, pid in PAGES if title == pg.title), "feature_picks")
+page_id = next((pid for _, title, pid, _ in PAGES if title == pg.title), "feature_picks")
 state.render_sidebar(snapshot, page_id)
 pg.run()

@@ -1,5 +1,5 @@
 # Streamlit settings for the app (keys checked against `streamlit config show`, Streamlit 1.66).
-# Colours come from the validated palette in ga4app/config.py (navy primary, lavender cards).
+# Colours come from the validated palette in ga4app/config.py (navy primary, lavender cards, pale yellow accent).
 
 [theme]
 base = "light"
@@ -7,10 +7,29 @@ primaryColor = "#2F3B7D"
 backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#ECEEF8"
 textColor = "#1F2433"
-font = "sans-serif"
+# Inter for text (the charts already ask for Inter) and Plus Jakarta Sans for headings, both from Google Fonts.
+# Inter is wider than the default font, so the base size drops to 15px and the KPI values to 1.875rem: at 16px
+# the KPI tiles cut off "2,528,496" and the top navigation no longer fit on one line.
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+headingFont = "'Plus Jakarta Sans':https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&display=swap"
+headingFontWeights = [800, 700, 700, 600, 600, 600]
+baseFontSize = 15
+metricValueFontSize = "1.875rem"
+metricValueFontWeight = 700
+# Lavender table header row with navy text.
+dataframeHeaderBackgroundColor = "#ECEEF8"
+dataframeHeaderTextColor = "#2F3B7D"
 
+# Navy sidebar, with the brand's pale yellow for selected options, toggles and sliders (8:1 on navy; coral would
+# be only 3.4:1). The full colour set is given so text, inputs and borders stay readable on the dark background.
 [theme.sidebar]
-backgroundColor = "#ECEEF8"
+backgroundColor = "#2F3B7D"
+secondaryBackgroundColor = "#3C4A92"
+codeBackgroundColor = "#3C4A92"
+textColor = "#FFFFFF"
+borderColor = "#5A67AD"
+primaryColor = "#F8E79A"
+linkColor = "#F8E79A"
 
 [browser]
 gatherUsageStats = false

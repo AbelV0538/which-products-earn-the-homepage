@@ -425,8 +425,27 @@ README.md
 ```
 
 **`.streamlit/config.toml`**
-- `[theme]`: base light, primaryColor `#2F3B7D`, backgroundColor `#FFFFFF`, secondaryBackgroundColor `#ECEEF8`, textColor `#1F2433`, font "sans-serif", chartCategoricalColors `["#2a78d6","#eb6834","#1baf7a","#8A8F98"]`.
-- `[theme.sidebar]`: backgroundColor `#ECEEF8`.
+- `[theme]`: base light, primaryColor `#2F3B7D`, backgroundColor `#FFFFFF`, secondaryBackgroundColor `#ECEEF8`, textColor `#1F2433`.
+  - Fonts from Google Fonts: Inter for text (the font the charts already ask for) and Plus Jakarta Sans for headings (weights 800, 700, 700, 600, 600, 600).
+  - Inter is wider than Streamlit's default font, so `baseFontSize = 15` and `metricValueFontSize = "1.875rem"` (weight 700). At 16px the KPI tiles cut off "2,528,496" and the seven nav items no longer fit on one line at 1440px.
+  - The page background stays white: the charts paint their own white surface, and the theme stays light-only for the same reason.
+- `[theme.sidebar]`: navy `#2F3B7D` background, `#3C4A92` inputs, white text, `#5A67AD` borders, pale yellow `#F8E79A` for selected options, toggles and sliders (8:1 on navy; coral would be 3.4:1).
+- `app.py`: a Material icon for each page in the top nav, `page_icon=":material/storefront:"`, and `st.logo` from `assets/`. `logo.svg` is a 250x40 wordmark (Streamlit's 200x32 logo box at 1.25x), drawn with light text for the navy sidebar. `logo_icon.svg` is the square mark shown in the header when the sidebar is collapsed. The logo is set after the snapshot guard, because the error page has no sidebar.
+- `dataframeHeaderBackgroundColor = "#ECEEF8"`, `dataframeHeaderTextColor = "#2F3B7D"`: lavender table header rows with navy text.
+- `assets/app.css` is the app's only custom CSS, loaded with `st.html` and written against Streamlit 1.66. Our own elements are styled through their `key=` classes; Streamlit's through `data-testid` attributes only, never generated class names. The charts are not styled.
+  - No gradients inside boxes: every card-style box uses flat colours. Gradients remain only on the sidebar (navy deepening to indigo), the thin brand strip across the top (navy, periwinkle, coral, pale yellow) and the short bars under section headings. The current nav link has a coral underline.
+  - Page header (`ui.header`, key `page_hero`): a flat lavender panel, a navy title, the caption darkened to `#4B5063`, and a colour badge per question (`ui.QUESTION_BADGES`: Q1 red = retire, Q2 green = promote, the others only tell them apart).
+  - Section headings get a short navy-to-coral bar that stretches on hover. KPI tiles (`ui.kpi_row`, key `kpis_` + first label) get a solid navy top bar, navy values and a hover shadow. The verdict card (key `verdict_` + page prefix) has a flat pale-lavender fill (`#F5F6FB`) and a navy bar down its left edge. Primary buttons stay the theme's solid navy and glow on hover.
+  - Slot Plan: each campaign column (key `campaign_<id>`) sets a colour, coral for Black Friday, periwinkle for Cyber Monday and gold `#E9B949` for December gifting, used by its heading bar and by its cards (key `slot_card_<id>_<slot>`): a top bar, a flat 5% tint, and a coloured border and shadow on hover. The campaign colours are decoration only; no chart encodes campaigns.
+  - Motion plays whatever the viewer's `prefers-reduced-motion` setting says: a deliberate choice for this class project, where the transitions are part of the demo. Windows reports `reduce` to Edge and Chrome when Settings > Accessibility > Visual effects > Animation effects is off (as on the development machine), and an earlier version that respected it showed no transitions there.
+    - Page transition: every top-level block of the page (the children of the main `stVerticalBlock`) fades in and rises 12px over 0.35 s, the first eight 45 ms apart, so a page builds from the top down while Streamlit dims the old one. It replaces the earlier per-box entrances, which would have doubled the motion. Streamlit re-creates a page's blocks when you switch to it but keeps them across reruns, so a filter change does not replay it; a block that newly appears (such as "Category to highlight") rises in. Fill-mode `backwards` hands the blocks back to Streamlit's own styles, such as its stale-element fade, once the entrance ends.
+    - Loading shimmer: while Streamlit's status widget is on screen, the top strip's colours sweep sideways (a 200%-wide gradient that ends where it starts, 1.4 s per loop) and go still when the page is ready. Streamlit shows the widget only on slower runs (from about 0.75 s into a 2.5 s page switch), so fast switches from cache get no shimmer.
+    - KPI tiles and slot cards lift 3px on hover, primary buttons 1px.
+    - Checked in a browser: on every page switch the number of entrances equals the number of top-level blocks (7 on Feature Picks, 18 on Holiday Shift, 15 on Slot Plan); none on a filter change; the shimmer ran in every sample taken while a page was loading and in none while idle. With the browser set to reduced motion, the same rise entrances, shimmer and hover lift.
+- The same file keeps all seven page links in the top bar. By default Streamlit folds the links that do not fit into an "N more" menu and marks them `aria-hidden`.
+  - Below 1440px wide the nav icons are hidden: with the sidebar open the links with icons need about 1426px, the names alone about 1270px.
+  - The nav is never narrower than its links (`min-width: max-content`), and a folded link keeps its place in the row (`position: static`), so Streamlit's next measurement finds room and unfolds it. The header row scrolls sideways instead, with a periwinkle scroll bar.
+  - Measured with fresh loads and live resizing from 800 to 1920px, sidebar open and collapsed: no link is ever folded. All seven fit without scrolling from 1280px with the sidebar open (1100px collapsed); below that the bar scrolls.
 - `[global]`: `disableWidgetStateDuplicationWarning = true`.
 - `[browser]`: `gatherUsageStats = false`.
 - If OneDrive sync triggers spurious reruns, set `server.fileWatcherType = "poll"` or `"none"`.
@@ -751,6 +770,8 @@ FROM pr GROUP BY 1,2,3,4,5,6,7,8,9,10;
 **1. Feature Picks (Q1, Q2; default page)**
 - Header with a scope caption.
 - Verdict card: rule-based immediately; "Write AI verdict" streams the AI version.
+  - Header row: a gavel icon, the title ("Verdict"; "Verdict on the plan" on the Slot Plan) and a badge for the source (grey "Rule-based", violet "AI · model", "Writing…" while streaming). The body drops the text's leading `**Verdict:**`, also while streaming, since the header says it; the generated text keeps it.
+  - "Write AI verdict" and "Write AI notes" are primary buttons with the `auto_awesome` icon, so the AI actions stand out.
 - KPI tiles: eligible products; average conversion (delta vs full season); views; purchases; forgone purchases.
 - Page controls: y-axis Raw/Adjusted; high-traffic cutoff; colour by Category or Highlight one; bubble size Revenue or Purchases.
 - Main chart, the quadrant bubble scatter:

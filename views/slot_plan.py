@@ -114,7 +114,8 @@ def _range(row) -> str:
 
 def _card(row: pd.Series, campaign: str, picked: set[str]) -> None:
     key = str(row["product_key"])
-    with st.container(border=True):
+    # The key gives the card its campaign colour in assets/app.css.
+    with st.container(border=True, key=f"slot_card_{config.CAMPAIGNS[campaign]}_{int(row['slot'])}"):
         st.markdown(f"**{int(row['slot'])}. {ui.esc(row['item_name'])}**")
         st.caption(ui.esc(row["category_group"]))
         vs_txt = _multiple(row["vs_avg"], row["window_avg"])
@@ -151,7 +152,7 @@ def _card(row: pd.Series, campaign: str, picked: set[str]) -> None:
 cols = st.columns(len(config.CAMPAIGNS))
 for col, campaign in zip(cols, config.CAMPAIGNS):
     period = config.PERIODS[config.CAMPAIGNS[campaign]]
-    with col:
+    with col, st.container(key=f"campaign_{config.CAMPAIGNS[campaign]}"):  # campaign colour in assets/app.css
         st.subheader(campaign)
         st.caption(f"{period.short()} · {period.days} days · scored on that window")
         rows = plan[plan["campaign"] == campaign]
@@ -239,17 +240,16 @@ for campaign in config.CAMPAIGNS:
     md.append("")
 md.append("## Retire from the homepage")
 md += [f"- {r.item_name}: {r.views:,} views, {100 * r.cr_raw:.2f}% conversion" for r in retire.itertuples()]
-d1, d2, _ = st.columns([1, 1, 3])
-d1.download_button("Download plan (CSV)", export.to_csv(index=False).encode("utf-8"), file_name="slot_plan.csv",
-                   mime="text/csv", on_click="ignore", key=f"{P}csv", width="stretch")
-d2.download_button("Download plan (Markdown)", "\n".join(md).encode("utf-8"), file_name="slot_plan.md",
-                   mime="text/markdown", on_click="ignore", key=f"{P}md", width="stretch")
+downloads = st.container(horizontal=True, gap="small")  # buttons as wide as their labels, never cut off
+downloads.download_button("Download plan (CSV)", export.to_csv(index=False).encode("utf-8"), file_name="slot_plan.csv",
+                          mime="text/csv", on_click="ignore", key=f"{P}csv")
+downloads.download_button("Download plan (Markdown)", "\n".join(md).encode("utf-8"), file_name="slot_plan.md",
+                          mime="text/markdown", on_click="ignore", key=f"{P}md")
 
-# Optional AI verdict on the plan.
-st.subheader("Verdict on the plan")
+# Optional AI verdict on the plan (the card's header carries the section title).
 payload = narrative.build_payload(
     season_products, season_th, season_f, window_label="Full season (slot plan)", cannibal=cannibal,
     slot_plan=plan, **data.verdict_context(snapshot, f),
 )
-ui.verdict_block(payload, key_prefix=P)
+ui.verdict_block(payload, key_prefix=P, title="Verdict on the plan")
 ui.caveat_note()

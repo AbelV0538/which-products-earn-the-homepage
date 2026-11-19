@@ -28,6 +28,15 @@ def _markdown(at: AppTest) -> str:
     return "\n".join(m.value for m in at.markdown)
 
 
+def _verdict_md(at: AppTest, title: str = "Verdict") -> str:
+    """The page's markdown, after checking the verdict card is drawn: its header, and a body without the
+    "**Verdict:**" lead that the header replaces."""
+    assert any(s.value == title for s in at.subheader), [s.value for s in at.subheader]
+    md = _markdown(at)
+    assert "**Verdict:**" not in md
+    return md
+
+
 def _scatter_spec(at: AppTest) -> dict:
     """The Feature Picks scatter's Plotly JSON (the chart with the quadrant badges)."""
     import json
@@ -51,7 +60,8 @@ def test_feature_picks_smoke(monkeypatch, synthetic_dir):
     assert len(at.metric) >= 5
     assert at.get("plotly_chart")
     assert at.dataframe
-    assert "**Verdict:**" in _markdown(at)
+    _verdict_md(at)
+    assert any(m.value.startswith(("Feature ", "The evidence is thin")) for m in at.markdown)
     assert any("SYNTHETIC" in w.value for w in at.warning)
 
 
@@ -61,7 +71,7 @@ def test_slot_plan_page(monkeypatch, synthetic_dir):
     assert not at.exception, [e.value for e in at.exception]
     assert any(s.value == "Black Friday" for s in at.subheader)
     assert any(s.value == "Retire from the homepage" for s in at.subheader)
-    assert "**Verdict:** Run the plan: lead Black Friday with" in _markdown(at)  # the verdict is on the plan
+    assert "Run the plan: lead Black Friday with" in _verdict_md(at, "Verdict on the plan")  # the verdict is on the plan
 
 
 def test_device_pills_and_reset(monkeypatch, synthetic_dir):
@@ -113,7 +123,7 @@ def test_ai_verdict_fake_stream(monkeypatch, synthetic_dir):
 
 def test_real_data_smoke(monkeypatch, real_data_dir):
     at = _run(monkeypatch, real_data_dir)
-    assert "**Verdict:**" in _markdown(at)
+    assert "Feature " in _verdict_md(at)
     assert not any("SYNTHETIC" in w.value for w in at.warning)
     at.switch_page("views/slot_plan.py").run()
     assert not at.exception, [e.value for e in at.exception]
