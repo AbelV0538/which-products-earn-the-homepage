@@ -27,17 +27,6 @@
   to { background-position: 200% 0; }
 }
 
-/* The reduced-motion versions: opacity only, nothing moves. */
-@keyframes ga-fade {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes ga-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
-
 /* ------------------------------------------------------------------ frame */
 
 /* A thin brand-gradient strip across the top of every page. */
@@ -218,14 +207,20 @@ button[data-testid="stBaseButton-primary"]:not(:disabled):hover {
 
 /* ------------------------------------------------------------------ motion */
 
-/* Page transition: each top-level block of the page animates in, the first eight 45 ms apart, so a page
-   builds from the top down as it opens (Streamlit dims the old page meanwhile). Streamlit re-creates a
-   page's blocks when you switch to it but keeps them across reruns, so a filter change does not replay
-   this; only a block that newly appears (such as "Category to highlight") animates in. Fill-mode
-   "backwards" hands the blocks back to Streamlit's own styles once the entrance ends.
-   With reduced motion asked for (in Windows: Settings > Accessibility > Visual effects > Animation
-   effects off), nothing moves: blocks only fade in, the strip pulses instead of sweeping, and nothing
-   lifts on hover. The delays apply to both versions. */
+/* The animations play whatever the viewer's system motion setting (prefers-reduced-motion) says: a
+   deliberate choice for this class project, where the transitions are part of the demo. Windows reports
+   "reduce" whenever Settings > Accessibility > Visual effects > Animation effects is off, which hid them
+   entirely on the development machine. */
+
+/* Page transition: each top-level block of the page fades in and rises 12px, the first eight 45 ms apart,
+   so a page builds from the top down as it opens (Streamlit dims the old page meanwhile). Streamlit
+   re-creates a page's blocks when you switch to it but keeps them across reruns, so a filter change does
+   not replay this; only a block that newly appears (such as "Category to highlight") rises in. Fill-mode
+   "backwards" hands the blocks back to Streamlit's own styles once the entrance ends. */
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > * {
+  animation: ga-rise 0.35s ease-out backwards;
+}
+
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(2) { animation-delay: 0.045s; }
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(3) { animation-delay: 0.09s; }
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(4) { animation-delay: 0.135s; }
@@ -235,40 +230,23 @@ button[data-testid="stBaseButton-primary"]:not(:disabled):hover {
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(8) { animation-delay: 0.315s; }
 [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > :nth-child(n+9) { animation-delay: 0.36s; }
 
-@media (prefers-reduced-motion: reduce) {
-  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > * {
-    animation: ga-fade 0.3s ease-out backwards;
-  }
-
-  [data-testid="stApp"]:has([data-testid="stStatusWidget"])::before {
-    animation: ga-pulse 1.2s ease-in-out infinite;
-  }
+/* Loading shimmer: while Streamlit runs a page (its status widget is on screen), the colours of the top
+   strip sweep sideways; the strip goes still when the page is ready. The gradient ends where it starts,
+   so the 200%-wide background repeats without a seam. */
+[data-testid="stApp"]:has([data-testid="stStatusWidget"])::before {
+  background: linear-gradient(90deg, #2F3B7D, #6270BD, #F7646A, #F8E79A, #F7646A, #6270BD, #2F3B7D);
+  background-size: 200% 100%;
+  animation: ga-shimmer 1.4s linear infinite;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  /* Full version: blocks fade in and rise 12px. */
-  [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > * {
-    animation: ga-rise 0.35s ease-out backwards;
-  }
+/* Hover lifts. */
+[class*="st-key-kpis_"] [data-testid="stMetric"]:hover,
+div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"]:hover {
+  transform: translateY(-3px);
+}
 
-  /* Loading shimmer: while Streamlit runs a page (its status widget is on screen), the colours of the
-     top strip sweep sideways; the strip goes still when the page is ready. The gradient ends where it
-     starts, so the 200%-wide background repeats without a seam. */
-  [data-testid="stApp"]:has([data-testid="stStatusWidget"])::before {
-    background: linear-gradient(90deg, #2F3B7D, #6270BD, #F7646A, #F8E79A, #F7646A, #6270BD, #2F3B7D);
-    background-size: 200% 100%;
-    animation: ga-shimmer 1.4s linear infinite;
-  }
-
-  /* Hover lifts. */
-  [class*="st-key-kpis_"] [data-testid="stMetric"]:hover,
-  div[class*="st-key-slot_card_"][data-testid="stVerticalBlock"]:hover {
-    transform: translateY(-3px);
-  }
-
-  button[data-testid="stBaseButton-primary"]:not(:disabled):hover {
-    transform: translateY(-1px);
-  }
+button[data-testid="stBaseButton-primary"]:not(:disabled):hover {
+  transform: translateY(-1px);
 }
 
 /* ------------------------------------------------------------------ top navigation width */
